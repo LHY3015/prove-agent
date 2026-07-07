@@ -1,0 +1,32 @@
+model:
+  extraction: claude-sonnet-4-6
+  synthesis: claude-sonnet-4-6
+  attribution: claude-sonnet-4-6
+
+synthesis_trigger: 10
+
+admission:
+  holdout_frac: 0.3
+  min_holdout: 3
+  f1_threshold: 0.95
+  max_rejections: 3
+
+trial_docs: 10
+
+monitor:
+  window: 20
+  failure_rate_threshold: 0.2
+  confidence_floor: 0.3
+
+sandbox:
+  cpu_seconds: 5
+  mem_mb: 512
+
+# A0|A1|A2|A3 — toggles admission gate / monitoring / attribution
+ablation:
+  mode: A3
+
+# Fill from current Anthropic pricing before running --live evals
+costs:
+  sonnet_in_per_mtok: null
+  sonnet_out_per_mtok: null

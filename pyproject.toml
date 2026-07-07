@@ -1,0 +1,34 @@
+[project]
+name = "prove-agent"
+version = "0.0.0"
+description = "PROVE — Outcome-Verified Skill Lifecycle Governance for Multi-Agent LLM Pipelines"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "langgraph",
+    "fastapi",
+    "uvicorn",
+    "pydantic>=2",
+    "pyyaml",
+    "jinja2",
+    "weasyprint",
+    "pdfplumber",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prove"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

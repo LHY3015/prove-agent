@@ -1,0 +1,37 @@
+# Design/record docs — kept local, not tracked
+local/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# uv
+.uv/
+uv.lock
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Project runtime artifacts
+*.sqlite
+*.sqlite3
+*.db
+evals/out/*
+!evals/out/.gitkeep
+
+# Env / secrets
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
