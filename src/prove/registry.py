@@ -117,6 +117,11 @@ class Registry:
         return self.get_skill(skill_id)
 
     def activate(self, skill_id: str) -> Skill:
+        skill = self.get_skill(skill_id)
+        if skill.state == "deprecated":
+            # a trial skill deprecated by the monitor must never promote (race: its last clean
+            # trial doc could reach `trial_docs` on the same doc the monitor kills it).
+            return skill
         self._conn.execute("UPDATE skills SET state='active' WHERE skill_id=?", (skill_id,))
         self._conn.commit()
         self._log(skill_id, "activated", {})

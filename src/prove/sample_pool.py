@@ -20,6 +20,7 @@ class PoolSample:
     fingerprint: str
     text_layout: dict
     fields: dict[str, str]  # validator-passed field values
+    invalidated: bool = False  # tombstoned on deprecation (kept for P4 attribution/audit)
 
 
 @dataclass
@@ -29,18 +30,33 @@ class SamplePool:
     def add(self, sample: PoolSample) -> None:
         self._by_fp.setdefault(sample.fingerprint, []).append(sample)
 
+    def _live(self, fingerprint: str) -> list[PoolSample]:
+        return [s for s in self._by_fp.get(fingerprint, []) if not s.invalidated]
+
     def count(self, fingerprint: str) -> int:
-        return len(self._by_fp.get(fingerprint, []))
+        return len(self._live(fingerprint))
 
     def samples_for(self, fingerprint: str) -> list[PoolSample]:
-        return list(self._by_fp.get(fingerprint, []))
+        return self._live(fingerprint)
+
+    def invalidate(self, fingerprint: str) -> int:
+        """Tombstone every current sample for a fingerprint (deprecation self-heal): they stop
+        counting toward the trigger and are never fed to synthesis, so resynthesis re-accumulates
+        from fresh post-deprecation LLM-verified docs. Rows are kept (not deleted) so Phase-4
+        attribution/audit can still read the pre-drift distribution. Returns the count tombstoned."""
+        n = 0
+        for s in self._by_fp.get(fingerprint, []):
+            if not s.invalidated:
+                s.invalidated = True
+                n += 1
+        return n
 
     def fingerprints(self) -> list[str]:
         return list(self._by_fp)
 
     def ready(self, trigger: int) -> list[str]:
-        """Fingerprints whose sample count has reached the synthesis trigger."""
-        return [fp for fp, s in self._by_fp.items() if len(s) >= trigger]
+        """Fingerprints whose live sample count has reached the synthesis trigger."""
+        return [fp for fp in self._by_fp if self.count(fp) >= trigger]
 
     def total(self) -> int:
-        return sum(len(s) for s in self._by_fp.values())
+        return sum(self.count(fp) for fp in self._by_fp)

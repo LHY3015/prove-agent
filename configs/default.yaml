@@ -27,6 +27,8 @@ monitor:
   window: 20
   failure_rate_threshold: 0.2
   confidence_floor: 0.3
+  min_window: 10          # fast path won't fire until a young skill has served this many docs
+  min_failures: 3         # absolute failure floor for the fast path (robust to noise on young skills)
 
 # discounted-Beta confidence ledger (effective N ~= 1/(1-decay) ~= 33)
 ledger:

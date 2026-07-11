@@ -33,9 +33,38 @@ prove-agent/
 
 ## Status
 
-**Phase 2 complete — skill synthesis + admission gate (the core loop).** On top of the
-Phase-1 baseline, a format's verified samples now compile into an executable skill and the
-pipeline learns to serve that format with cheap deterministic code instead of the LLM:
+**Phase 3 complete — continuous monitoring + self-healing.** On top of the Phase-2 core
+loop, a live monitor watches every skill's validation outcomes and self-heals under drift:
+
+```
+skill serving a format → template drift → skill's validation failures accumulate
+  → monitor deprecates (sliding-window failure rate, or confidence floor) → traffic falls back to the LLM
+    → pool re-accumulates fresh post-drift samples → resynthesis → new skill admitted → serving again
+```
+
+- **Monitor** (`monitor.py`): a per-`skill_id` sliding window (a resynthesized skill starts
+  clean) plus the discounted-Beta confidence floor. Fast path (window failure rate over threshold,
+  with an absolute failure floor so routing noise can't kill a young skill) or slow path (ledger
+  floor) → deprecate. Covers trial and active skills.
+- **Self-healing** (`pipeline.py`): deprecation tombstones the stale pool (rows kept for
+  attribution/audit, excluded from synthesis), drops the frozen admission holdout, and opens a
+  fresh synthesis *campaign* (rejection counter reset, campaign id logged). Resynthesis re-fires
+  only once the pool re-reaches the trigger with fresh post-drift samples.
+- **Drift demo** (`scenarios/drift_demo.py`): injects a mid-stream date-format drift and produces
+  the self-healing timeline with zero manual steps:
+
+  ```
+  v1 admitted → drift at doc 30 → deprecated at doc 35 (failure_batch:window 5/20)
+    → LLM fallback → v2 admitted at doc 45 → healed   (key-free; --live carries real figures)
+  ```
+
+  ![self-healing timeline](docs/drift_demo_timeline.png)
+  <br>*(regenerate with `python scenarios/drift_demo.py` → `evals/out/drift_demo_timeline.png`)*
+
+<details><summary>Phase 2 — skill synthesis + admission gate (the core loop)</summary>
+
+A format's verified samples compile into an executable skill and the pipeline learns to serve
+that format with cheap deterministic code instead of the LLM:
 
 ```
 pool reaches synthesis_trigger → synthesis agent writes extract(text_layout) (self-repair in sandbox)
@@ -65,8 +94,10 @@ route hit on an active/trial skill → sandbox executes the code → validator c
   admitted and emits silent, confident, deterministic wrong fields — the gate catches the exact
   same candidate.** (Numbers above are simulated/key-free; `--live` runs carry the real figures.)
 
-52 tests pass with no API key. Phase 3 (continuous monitoring + self-healing) is next. See
-`local/IMPLEMENTATION_PLAN.md` for the roadmap.
+</details>
+
+60 tests pass with no API key. Phase 4 (attribution + fault-injection evals + full ablations)
+is next. See `local/IMPLEMENTATION_PLAN.md` for the roadmap.
 
 ## Development
 
@@ -81,6 +112,8 @@ python -m evals.ablation --config A2                          # synthesis + admi
 python -m evals.ablation --config A1 --overfit-first-k 1      # no gate → silent failures
 python -m evals.ablation --config A2 --overfit-first-k 1      # gate rejects the overfit skill
 python -m evals.ablation --config A0 --live                  # real Qwen run (spends tokens)
+
+python scenarios/drift_demo.py                               # self-healing timeline → evals/out/
 ```
 
 Real-LLM runs go only through `evals/` scripts behind an explicit `--live` flag.

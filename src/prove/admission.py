@@ -74,6 +74,12 @@ class Admission:
         train = [s for s in samples if s.doc_id not in held]
         return train, holdout
 
+    def reset_holdout(self, fingerprint: str) -> None:
+        """Drop the frozen holdout for a fingerprint so the next split re-chooses it. Called on
+        deprecation self-heal: the old holdout doc_ids belong to now-tombstoned pre-drift pool
+        samples, so the post-drift campaign must pick a fresh holdout from the new arrivals."""
+        self._holdout_ids.pop(fingerprint, None)
+
     def _choose_holdout(self, fingerprint: str, samples: list[PoolSample]) -> set[str]:
         n = len(samples)
         k = max(self.min_holdout, round(self.holdout_frac * n))

@@ -23,6 +23,7 @@ from langgraph.graph import END, START, StateGraph
 from .admission import Admission
 from .extraction_agent import ExtractionAgent
 from .llm_client import LLMClient
+from .monitor import Monitor
 from .registry import Registry
 from .router import Router, compute_fingerprint, fingerprint_hash
 from .sample_pool import PoolSample, SamplePool
@@ -87,9 +88,21 @@ class Pipeline:
             f1_threshold=adm.get("f1_threshold", 0.95),
             cpu_seconds=self.cpu_seconds, mem_mb=self.mem_mb,
         )
+        # monitoring + self-healing (Phase 3). A0/A1 keep skills but never deprecate them:
+        # A0 has no skills; A1 exists to SHOW un-gated skills failing silently, so healing it
+        # would erase the demonstration. Deprecation runs from A2 on.
+        self.monitor_enabled = self.mode not in ("A0", "A1")
+        mon = config.get("monitor", {})
+        self.monitor = Monitor(
+            window=mon.get("window", 20),
+            failure_rate_threshold=mon.get("failure_rate_threshold", 0.2),
+            confidence_floor=mon.get("confidence_floor", 0.3),
+            min_window=mon.get("min_window", 10),
+            min_failures=mon.get("min_failures", 3),
+        )
 
         # lifecycle bookkeeping
-        self._synth_state: dict[str, dict] = {}   # fp -> {rejections}
+        self._synth_state: dict[str, dict] = {}   # fp -> {rejections, campaign}
         self._trial_passes: dict[str, int] = {}   # skill_id -> clean trial docs served
         self.lifecycle_cost_usd = 0.0
         self._app = self._build_graph()
@@ -185,12 +198,39 @@ class Pipeline:
 
     def _record_skill_outcome(self, skill_id: str, passed: bool) -> None:
         # A2+ charges every production outcome to the ledger (raw — attribution is Phase 4).
-        self.registry.record_outcome(skill_id, passed, attributed=True)
-        skill = self.registry.get_skill(skill_id)
+        skill = self.registry.record_outcome(skill_id, passed, attributed=True)
+        self.monitor.record(skill_id, passed)
+
+        # self-healing: the monitor may deprecate a failing trial OR active skill. Check this
+        # BEFORE trial promotion so a skill can't promote on the same doc that kills it.
+        if self.monitor_enabled:
+            confidence = skill.alpha / (skill.alpha + skill.beta)
+            reason = self.monitor.should_deprecate(skill_id, confidence)
+            if reason is not None:
+                self._deprecate_and_reset(skill.skill_id, skill.format_id, reason)
+                return
+
         if skill.state == "trial" and passed:
             self._trial_passes[skill_id] = self._trial_passes.get(skill_id, 0) + 1
             if self._trial_passes[skill_id] >= self.trial_docs:
                 self.registry.activate(skill_id)
+
+    def _deprecate_and_reset(self, skill_id: str, fingerprint: str, reason: str) -> None:
+        """Deprecate a skill and open a fresh synthesis campaign for its format: tombstone the
+        stale pool, drop the frozen holdout, and reset the rejection counter under a new campaign
+        id. Traffic falls back to the LLM (serving_skill is now None), the pool re-accumulates
+        from post-deprecation LLM-verified docs, and `_lifecycle` re-fires once it re-reaches the
+        trigger with those FRESH samples."""
+        self.registry.deprecate(skill_id, reason)
+        self.monitor.drop(skill_id)
+        self._trial_passes.pop(skill_id, None)
+        self.pool.invalidate(fingerprint)
+        self.admission.reset_holdout(fingerprint)
+        prev = self._synth_state.get(fingerprint, {"campaign": 0})
+        campaign = prev.get("campaign", 0) + 1
+        self._synth_state[fingerprint] = {"rejections": 0, "campaign": campaign}
+        self.registry.log_event(skill_id, "deprecated_reset",
+                                {"reason": reason, "campaign": campaign})
 
     # ---- lifecycle (synthesis trigger) ----------------------------------
 
@@ -199,7 +239,7 @@ class Pipeline:
             return
         if self.registry.serving_skill(fingerprint) is not None:
             return
-        state = self._synth_state.setdefault(fingerprint, {"rejections": 0})
+        state = self._synth_state.setdefault(fingerprint, {"rejections": 0, "campaign": 0})
         if state["rejections"] >= self.max_rejections:
             return
         if self.pool.count(fingerprint) < self.trigger:
@@ -214,6 +254,7 @@ class Pipeline:
         self.registry.log_event(
             skill.skill_id, "synthesized",
             {"attempts": synth.attempts, "passed_training": synth.passed_training,
+             "campaign": state["campaign"],
              "tokens_in": synth.tokens_in, "tokens_out": synth.tokens_out},
             cost_usd=synth.cost_usd,
         )
@@ -231,9 +272,12 @@ class Pipeline:
             self.registry.reject(skill.skill_id, report.to_dict())
             state["rejections"] += 1
             if state["rejections"] >= self.max_rejections:
+                # campaign exhausted: this format stays on the LLM fallback until a future
+                # deprecation opens a new campaign (or Phase-4 meta-review intervenes). Safe but
+                # expensive — logged loudly, never silently stranded.
                 self.registry.log_event(
-                    skill.skill_id, "flagged_meta_review",
-                    {"rejections": state["rejections"]},  # Phase 4 handles; for now log + stop
+                    skill.skill_id, "campaign_exhausted",
+                    {"rejections": state["rejections"], "campaign": state["campaign"]},
                 )
 
     # ---- public API ------------------------------------------------------

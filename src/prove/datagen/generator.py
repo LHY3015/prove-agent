@@ -39,6 +39,17 @@ class FormatSpec:
     tax_rate: float        # e.g. 0.07
 
 
+@dataclass
+class DriftSpec:
+    """Template drift injected mid-stream (Phase 3). From `at_index` on, a format's invoice
+    date is rendered in `new_date_style`. Because the router fingerprint drops digit/month
+    tokens, this is fingerprint-STABLE — drifted docs still route to the existing skill, whose
+    baked-in date handling misses the new style, so the failure surfaces as a validation
+    failure on that skill (genuine template drift, not new-format discovery)."""
+    at_index: int
+    new_date_style: str
+
+
 # Eight formats over four distinct layouts (two formats per layout, differentiated by
 # vendor/currency/date-style/tax). Layout count is a run-scale knob per the plan.
 FORMATS: list[FormatSpec] = [
@@ -72,9 +83,14 @@ def _money(x: float) -> str:
     return f"{x:.2f}"
 
 
-def _random_doc_context(fmt: FormatSpec, rng: random.Random) -> dict[str, Any]:
-    """Randomize field values for one document; totals stay internally consistent."""
+def _random_doc_context(
+    fmt: FormatSpec, rng: random.Random, date_style: str | None = None
+) -> dict[str, Any]:
+    """Randomize field values for one document; totals stay internally consistent.
+    `date_style` overrides the format's default (used to inject template drift)."""
     import datetime
+
+    date_style = date_style or fmt.date_style
 
     n_items = rng.randint(1, 5)
     items = []
@@ -97,7 +113,7 @@ def _random_doc_context(fmt: FormatSpec, rng: random.Random) -> dict[str, Any]:
     total = round(subtotal + tax, 2)
 
     day = datetime.date(2024, 1, 1) + datetime.timedelta(days=rng.randint(0, 364))
-    date_str = day.strftime(fmt.date_style)
+    date_str = day.strftime(date_style)
     invoice_number = f"{fmt.inv_prefix}{day.year}-{rng.randint(0, 99999):05d}"
 
     return {
@@ -160,6 +176,44 @@ def generate_dataset(
                 "fields": _ground_truth(ctx),
             }
             manifest.append(entry)
+
+    with open(out_dir / "manifest.jsonl", "w", encoding="utf-8") as f:
+        for entry in manifest:
+            f.write(json.dumps(entry) + "\n")
+    return manifest
+
+
+def generate_stream(
+    out_dir: str | Path,
+    fmt: FormatSpec,
+    n: int,
+    seed: int = 0,
+    drift: DriftSpec | None = None,
+) -> list[dict[str, Any]]:
+    """Render one format `n` times in a single ordered stream (the drift-demo driver). If `drift`
+    is set, docs at index >= `drift.at_index` use `drift.new_date_style`. Writes {doc_id}.pdf +
+    manifest.jsonl; returns manifest entries in stream order."""
+    from weasyprint import HTML
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    template = _env().get_template(fmt.template)
+    rng = random.Random(seed)
+
+    manifest: list[dict[str, Any]] = []
+    for i in range(n):
+        style = drift.new_date_style if (drift and i >= drift.at_index) else fmt.date_style
+        ctx = _random_doc_context(fmt, rng, date_style=style)
+        doc_id = f"{fmt.format_id}_{i:04d}"
+        pdf_path = out_dir / f"{doc_id}.pdf"
+        HTML(string=template.render(**ctx)).write_pdf(str(pdf_path))
+        manifest.append({
+            "doc_id": doc_id,
+            "format_id_true": fmt.format_id,
+            "pdf_path": str(pdf_path),
+            "drifted": bool(drift and i >= drift.at_index),
+            "fields": _ground_truth(ctx),
+        })
 
     with open(out_dir / "manifest.jsonl", "w", encoding="utf-8") as f:
         for entry in manifest:

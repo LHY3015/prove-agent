@@ -132,6 +132,61 @@ def build_overfit(samples: list[dict]) -> str:
     return generic + tail
 
 
+# the date regexes GENERIC_PARSER knows, as data — used to model a skill whose date competence
+# is LEARNED from its training samples (Phase 3 drift demo), not universal like GENERIC_PARSER.
+_DATE_REGEXES = [
+    r"\d{4}-\d{2}-\d{2}",
+    r"\d{4}/\d{2}/\d{2}",
+    r"\d{2}/\d{2}/\d{4}",
+    r"\d{2}\.\d{2}\.\d{4}",
+    r"\d{1,2} [A-Z][a-z]{2} \d{4}",
+    r"[A-Z][a-z]{2} \d{1,2}, \d{4}",
+    r"[A-Z][a-z]{2} \d{1,2} \d{4}",
+]
+
+
+def build_specialized(samples: list[dict]) -> str:
+    """A parser that only TRUSTS the invoice-date styles present in its training samples. It runs
+    the generic extractor, then blanks the date if it isn't in a learned style. This models the
+    realistic case (a real LLM shown one date style writes a parser for that style): pre-drift it
+    handles the format; after a date-format drift the new style is blanked -> missing-field ->
+    validation fails -> monitor deprecates. Resynthesis from post-drift samples learns the new
+    style and heals. Derived only from the samples handed in — it does NOT know drift exists."""
+    dates = [s["fields"]["invoice_date"] for s in samples if s.get("fields", {}).get("invoice_date")]
+    learned = [rx for rx in _DATE_REGEXES if dates and all(re.search(rx, d) for d in dates)]
+    if not learned:  # degenerate: behave like the generic parser
+        learned = list(_DATE_REGEXES)
+    generic = GENERIC_PARSER.replace("def extract(text_layout):", "def _generic(text_layout):")
+    tail = (
+        f"\n_LEARNED = {json.dumps(learned)}\n"
+        "def extract(text_layout):\n"
+        "    out = _generic(text_layout)\n"
+        "    d = out.get('invoice_date', '')\n"
+        "    if d and not any(re.search(rx, d) for rx in _LEARNED):\n"
+        "        out['invoice_date'] = ''\n"
+        "    return out\n"
+    )
+    return generic + tail
+
+
+class SpecializedSynthesizer:
+    """Drift-demo synthesis double: returns `build_specialized(samples)` for whatever samples it
+    is given (pre- or post-drift pool), so competence tracks the training distribution. Repair
+    sub-attempts within one synthesis episode return the same code. Unlike GENERIC_PARSER this is
+    NOT robust to unseen date styles — that is the point of the self-healing demonstration."""
+
+    def __init__(self):
+        self._last: dict[str, str] = {}
+
+    def __call__(self, system: str, user: str, model: str) -> str:
+        fp, samples = _parse_prompt(user)
+        if "was INCORRECT" in user and fp in self._last:
+            return self._last[fp]
+        code = build_specialized(samples) if samples else GENERIC_PARSER
+        self._last[fp] = code
+        return code
+
+
 _FP_RE = re.compile(r"Format id: (\S+)")
 # the samples payload is a single-line json array right after the SAMPLES_JSON marker; it may
 # be the last line of the prompt (no trailing newline) or be followed by a repair section.
