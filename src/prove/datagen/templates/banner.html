@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 0; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 11px; color: #222; margin: 0; }
+  .banner { background: #333; color: #fff; padding: 26px 40px; }
+  .banner .name { font-size: 26px; font-weight: bold; }
+  .banner .addr { font-size: 11px; color: #ccc; margin-top: 4px; }
+  .content { padding: 30px 40px; }
+  .cols { width: 100%; margin-bottom: 20px; }
+  .col-left { float: left; width: 48%; }
+  .col-right { float: right; width: 48%; text-align: right; }
+  .col-right .big { font-size: 18px; letter-spacing: 4px; margin-bottom: 8px; }
+  .col-right div { margin-bottom: 3px; }
+  .clear { clear: both; }
+  .muted { color: #888; }
+  table.items { width: 100%; border-collapse: collapse; }
+  table.items th { border-bottom: 2px solid #333; padding: 8px 4px; text-align: left; }
+  table.items td { padding: 6px 4px; border-bottom: 1px solid #eee; }
+  table.items .num { text-align: right; }
+  .totals { float: right; margin-top: 16px; min-width: 40%; }
+  .totals div { display: flex; justify-content: space-between; padding: 3px 0; }
+  .totals .grand { font-weight: bold; font-size: 15px; border-top: 2px solid #333; padding-top: 6px; }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <div class="name">{{ vendor_name }}</div>
+    <div class="addr">{{ vendor_address }}</div>
+  </div>
+  <div class="content">
+    <div class="cols">
+      <div class="col-left">
+        <div class="muted">Bill To</div>
+        <div>Accounts Payable</div>
+      </div>
+      <div class="col-right">
+        <div class="big">INVOICE</div>
+        <div>#{{ invoice_number }}</div>
+        <div>{{ invoice_date_str }}</div>
+        <div>Paid in {{ currency }}</div>
+      </div>
+      <div class="clear"></div>
+    </div>
+
+    <table class="items">
+      <thead>
+        <tr><th>Service</th><th class="num">Units</th><th class="num">Price</th><th class="num">Total</th></tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr><td>{{ it.desc }}</td><td class="num">{{ it.qty }}</td><td class="num">{{ it.unit_price }}</td><td class="num">{{ it.amount }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="totals">
+      <div><span>Subtotal</span><span>{{ subtotal_str }}</span></div>
+      <div><span>Tax ({{ tax_rate_str }})</span><span>{{ tax_str }}</span></div>
+      <div class="grand"><span>Amount Due</span><span>{{ total_str }}</span></div>
+    </div>
+    <div class="clear"></div>
+  </div>
+</body>
+</html>

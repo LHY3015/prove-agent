@@ -1,7 +1,17 @@
+# LLM transport. Tests force provider=fake (no API key, no network).
+# Real-LLM runs (evals --live) use openai_compat against Qwen / Model Studio international.
+llm:
+  provider: openai_compat            # openai_compat | anthropic (later) | fake (tests force this)
+  base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+  # workspace-scoped form: https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
+  # API key via env DASHSCOPE_API_KEY (region-scoped)
+
+# Per-role model tiering (single source of truth). Placeholder Qwen IDs —
+# confirm exact IDs against the Model Studio international catalog before any --live run.
 model:
-  extraction: claude-sonnet-4-6
-  synthesis: claude-sonnet-4-6
-  attribution: claude-sonnet-4-6
+  extraction: qwen-turbo             # cheap/light
+  synthesis: qwen-coder-plus         # coder-class
+  attribution: qwen-max              # flagship
 
 synthesis_trigger: 10
 
@@ -18,6 +28,11 @@ monitor:
   failure_rate_threshold: 0.2
   confidence_floor: 0.3
 
+# discounted-Beta confidence ledger (effective N ~= 1/(1-decay) ~= 33)
+ledger:
+  prior: 1
+  decay: 0.97
+
 sandbox:
   cpu_seconds: 5
   mem_mb: 512
@@ -26,7 +41,5 @@ sandbox:
 ablation:
   mode: A3
 
-# Fill from current Anthropic pricing before running --live evals
-costs:
-  sonnet_in_per_mtok: null
-  sonnet_out_per_mtok: null
+# per-model in/out $/Mtok — fill from the intl pricing page before --live evals
+costs: {}

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A5; margin: 1.2cm; }
+  body { font-family: "DejaVu Sans Mono", monospace; font-size: 10px; color: #000; }
+  .name { font-size: 14px; font-weight: bold; text-align: center; }
+  .addr { text-align: center; color: #333; margin-bottom: 2px; }
+  .rule { border-top: 1px dashed #000; margin: 8px 0; }
+  .meta { margin-bottom: 6px; }
+  .meta span { display: block; }
+  table.items { width: 100%; border-collapse: collapse; }
+  table.items td { padding: 2px 0; }
+  table.items .num { text-align: right; }
+  .totals { margin-top: 8px; }
+  .totals div { display: flex; justify-content: space-between; }
+  .totals .grand { font-weight: bold; border-top: 1px solid #000; margin-top: 3px; padding-top: 3px; }
+</style>
+</head>
+<body>
+  <div class="name">{{ vendor_name }}</div>
+  <div class="addr">{{ vendor_address }}</div>
+  <div class="rule"></div>
+  <div class="meta">
+    <span>Ref {{ invoice_number }}</span>
+    <span>{{ invoice_date_str }} / {{ currency }}</span>
+  </div>
+  <div class="rule"></div>
+  <table class="items">
+    <tbody>
+      {% for it in items %}
+      <tr><td>{{ it.desc }}</td><td class="num">{{ it.qty }} x {{ it.unit_price }}</td><td class="num">{{ it.amount }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="rule"></div>
+  <div class="totals">
+    <div><span>Subtotal</span><span>{{ subtotal_str }}</span></div>
+    <div><span>Tax {{ tax_rate_str }}</span><span>{{ tax_str }}</span></div>
+    <div class="grand"><span>TOTAL</span><span>{{ total_str }}</span></div>
+  </div>
+</body>
+</html>

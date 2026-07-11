@@ -33,14 +33,54 @@ prove-agent/
 
 ## Status
 
-Phase 1 (baseline pipeline) in progress. See the implementation plan for the phased
-roadmap and definitions of done.
+**Phase 2 complete — skill synthesis + admission gate (the core loop).** On top of the
+Phase-1 baseline, a format's verified samples now compile into an executable skill and the
+pipeline learns to serve that format with cheap deterministic code instead of the LLM:
+
+```
+pool reaches synthesis_trigger → synthesis agent writes extract(text_layout) (self-repair in sandbox)
+  → admission holds out 30% (never shown to synthesis), runs the candidate in the sandbox, scores field F1
+      ├─ pass → trial (fingerprint registered in the router) → 10 clean docs → active
+      └─ fail → resynthesize (max_rejections → flag for meta-review)
+route hit on an active/trial skill → sandbox executes the code → validator checks → trace
+```
+
+- **Sandbox** (`sandbox.py`): every synthesized skill runs in an isolated `python -I` subprocess
+  — CPU/memory rlimits, import whitelist (`re, json, datetime, decimal, math`), no I/O or network
+  path, wall-timeout. Security-tested (import/open blocked, timeouts + memory caps enforced).
+- **Confidence ledger** (`registry.py`): discounted-Beta counters per skill; admission seeds
+  pseudo-counts from the held-out result (a skill is never born at 1.0); only attributed outcomes
+  update it.
+- **Ablations A0–A3** (`evals/ablation.py`): A0 baseline · A1 synthesis with **no** gate · A2 gate
+  on · A3 = A2 + attribution (Phase 4). The A1-vs-A2 contrast is the headline result:
+
+  | config | tokens/doc | skill docs | silent failures | skills |
+  |---|---|---|---|---|
+  | A0 (no skills) | 242 | 0 | 0 | — |
+  | A2 (gate on) | **97** | 120 | 0 | 8 active |
+  | A1 (no gate, overfit) | 97 | 120 | **15** — validation passes, fields wrong | 8 active |
+  | A2 (same overfit stream) | 98 | 119 | **0** | overfit rejected → good skill admitted |
+
+  Cost-per-doc drops as skills come online; **without the held-out gate an overfit skill is
+  admitted and emits silent, confident, deterministic wrong fields — the gate catches the exact
+  same candidate.** (Numbers above are simulated/key-free; `--live` runs carry the real figures.)
+
+52 tests pass with no API key. Phase 3 (continuous monitoring + self-healing) is next. See
+`local/IMPLEMENTATION_PLAN.md` for the roadmap.
 
 ## Development
 
 ```bash
-uv sync                 # create env from pyproject.toml
+uv sync --extra dev     # create env from pyproject.toml (Python 3.12, incl. pytest/ruff)
 uv run pytest           # unit + integration tests (no API key needed)
+uv run ruff check .     # lint
+
+# ablations (simulated LLM, no API key):
+python -m evals.ablation --config A0                          # baseline (pure LLM)
+python -m evals.ablation --config A2                          # synthesis + admission gate
+python -m evals.ablation --config A1 --overfit-first-k 1      # no gate → silent failures
+python -m evals.ablation --config A2 --overfit-first-k 1      # gate rejects the overfit skill
+python -m evals.ablation --config A0 --live                  # real Qwen run (spends tokens)
 ```
 
 Real-LLM runs go only through `evals/` scripts behind an explicit `--live` flag.

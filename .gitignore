@@ -1,5 +1,6 @@
 # Design/record docs — kept local, not tracked
 local/
+CLAUDE.md
 
 # Python
 __pycache__/
