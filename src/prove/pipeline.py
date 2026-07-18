@@ -16,11 +16,14 @@ Ablation modes (from `ablation.mode`):
 from __future__ import annotations
 
 import time
-from typing import Any, Optional, TypedDict
+from collections import deque
+from typing import Any, Callable, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from .admission import Admission
+from .attribution import Attributor
+from .audit import PoolAuditor
 from .extraction_agent import ExtractionAgent
 from .llm_client import LLMClient
 from .monitor import Monitor
@@ -57,6 +60,7 @@ class Pipeline:
         router: Optional[Router] = None,
         sample_pool: Optional[SamplePool] = None,
         registry: Optional[Registry] = None,
+        validator: Optional[Callable] = None,
     ):
         self.config = config
         self.mode = config.get("ablation", {}).get("mode", "A0")
@@ -68,6 +72,8 @@ class Pipeline:
         self.traces = trace_store or TraceStore(":memory:")
         self.registry = registry or Registry(":memory:")
         self.extraction_agent = ExtractionAgent(client, config["model"]["extraction"])
+        # injectable validator seam (rule_corruption fault, Phase 4b); defaults to the real engine.
+        self._validate = validator or validate
 
         sb = config.get("sandbox", {})
         self.cpu_seconds = sb.get("cpu_seconds", 5)
@@ -93,17 +99,36 @@ class Pipeline:
         # would erase the demonstration. Deprecation runs from A2 on.
         self.monitor_enabled = self.mode not in ("A0", "A1")
         mon = config.get("monitor", {})
+        self.window = mon.get("window", 20)
         self.monitor = Monitor(
-            window=mon.get("window", 20),
+            window=self.window,
             failure_rate_threshold=mon.get("failure_rate_threshold", 0.2),
             confidence_floor=mon.get("confidence_floor", 0.3),
             min_window=mon.get("min_window", 10),
             min_failures=mon.get("min_failures", 3),
         )
 
+        # attribution (Phase 4). A3 only: a fired monitor batch is classified to a root cause and
+        # only skill-fault failures charge the ledger; A2 charges every failure raw (no attribution).
+        self.attribution_enabled = self.mode == "A3"
+        att = config.get("attribution", {})
+        self.attributor = Attributor(
+            conf_tau=att.get("conf_tau", 0.9),
+            drift_prefix_frac=att.get("drift_prefix_frac", 0.4),
+        )
+        self.ambiguous_meta_review = att.get("ambiguous_meta_review", 2)
+        # the auditor must judge with the SAME (possibly corrupted) validator the pipeline uses, so
+        # a corrupted rule firing on the immutable pool is what it detects.
+        self.auditor = PoolAuditor(validator=self._validate,
+                                   anomaly_frac=att.get("audit_anomaly_frac", 0.2))
+
         # lifecycle bookkeeping
         self._synth_state: dict[str, dict] = {}   # fp -> {rejections, campaign}
         self._trial_passes: dict[str, int] = {}   # skill_id -> clean trial docs served
+        self._trace_windows: dict[str, deque] = {}  # skill_id -> recent Traces (attribution batch)
+        self._ambiguous_counts: dict[str, int] = {}  # skill_id -> consecutive ambiguous verdicts
+        self._frozen_rules: set[str] = set()      # rule_defect remedy: rules excused from the ledger
+        self.attributions: list[dict] = []        # verdict log (injected-vs-attributed eval reads this)
         self.lifecycle_cost_usd = 0.0
         self._app = self._build_graph()
 
@@ -120,7 +145,10 @@ class Pipeline:
         }
 
     def _decide(self, state: PipelineState) -> str:
-        if not self.skills_enabled or state["route_method"] != "exact":
+        # A serving skill executes on an exact match, or on a fuzzy match (the fuzzy-routing path;
+        # the base Router never emits fuzzy, so this only activates under injected routing_noise —
+        # a misroute delivered to another format's skill at genuine low confidence).
+        if not self.skills_enabled or state["route_method"] not in ("exact", "fuzzy"):
             return "llm"
         skill = self.registry.serving_skill(state["route_format_id"])
         return "skill" if skill is not None else "llm"
@@ -142,7 +170,7 @@ class Pipeline:
         return {"extraction": ext, "skill_id": skill.skill_id, "skill_version": skill.version}
 
     def _validate_node(self, state: PipelineState) -> dict:
-        return {"verdict": validate(state["extraction"], state.get("ground_truth"))}
+        return {"verdict": self._validate(state["extraction"], state.get("ground_truth"))}
 
     def _finalize_node(self, state: PipelineState) -> dict:
         ext = state["extraction"]
@@ -158,9 +186,6 @@ class Pipeline:
                 text_layout=state["document"].text_layout, fields=ext.fields,
             ))
 
-        if ext.source == "skill" and ext.skill_id:
-            self._record_skill_outcome(ext.skill_id, verdict.passed)
-
         trace = Trace(
             doc_id=ext.doc_id, ts=time.time(),
             route_format_id=state["route_format_id"],
@@ -174,6 +199,11 @@ class Pipeline:
             cost_usd=ext.cost_usd, tokens_in=ext.tokens_in, tokens_out=ext.tokens_out,
         )
         self.traces.write(trace)
+
+        # the trace is the attribution batch's unit, so the skill-outcome bookkeeping runs on it
+        # (after it exists) rather than on a bare (skill_id, passed) pair.
+        if ext.source == "skill" and ext.skill_id:
+            self._record_skill_outcome(trace)
         return {"trace": trace}
 
     def _build_graph(self):
@@ -196,24 +226,93 @@ class Pipeline:
 
     # ---- skill outcome + trial promotion --------------------------------
 
-    def _record_skill_outcome(self, skill_id: str, passed: bool) -> None:
-        # A2+ charges every production outcome to the ledger (raw — attribution is Phase 4).
-        skill = self.registry.record_outcome(skill_id, passed, attributed=True)
+    def _record_skill_outcome(self, trace: Trace) -> None:
+        skill_id = trace.skill_id
+        passed = trace.validation.passed
+        self._trace_windows.setdefault(skill_id, deque(maxlen=self.window)).append(trace)
+
+        # Ledger charging. A2 charges every outcome raw (no attribution). A3 defers: a pass is an
+        # unambiguous positive (charge alpha now); a failure's blame is unknown until the batch is
+        # attributed, so it is only logged (attributed=False leaves beta untouched) and charged
+        # later iff attribution finds the skill at fault.
+        if not self.attribution_enabled or passed:
+            skill = self.registry.record_outcome(skill_id, passed, attributed=True)
+        else:
+            skill = self.registry.record_outcome(skill_id, False, attributed=False)
         self.monitor.record(skill_id, passed)
 
-        # self-healing: the monitor may deprecate a failing trial OR active skill. Check this
-        # BEFORE trial promotion so a skill can't promote on the same doc that kills it.
+        # self-healing: the monitor may fire on a failing trial OR active skill. Check this BEFORE
+        # trial promotion so a skill can't promote on the same doc that trips it.
         if self.monitor_enabled:
             confidence = skill.alpha / (skill.alpha + skill.beta)
             reason = self.monitor.should_deprecate(skill_id, confidence)
             if reason is not None:
-                self._deprecate_and_reset(skill.skill_id, skill.format_id, reason)
+                if self.attribution_enabled:
+                    self._attribute_and_remedy(skill.skill_id, skill.format_id, reason)
+                else:
+                    self._deprecate_and_reset(skill.skill_id, skill.format_id, reason)
                 return
 
         if skill.state == "trial" and passed:
             self._trial_passes[skill_id] = self._trial_passes.get(skill_id, 0) + 1
             if self._trial_passes[skill_id] >= self.trial_docs:
                 self.registry.activate(skill_id)
+
+    def _attribute_and_remedy(self, skill_id: str, fingerprint: str, reason: str) -> None:
+        """A3: a monitor batch fired. Classify its root cause and apply the targeted remedy — only
+        skill-fault failures (skill_defect / data_drift) charge the ledger and deprecate; a routing
+        or rule fault leaves the skill's confidence untouched (the failure belongs to another
+        account); an ambiguous batch is logged with no charge and escalated to meta-review on
+        repetition. After any non-deprecating verdict the skill's window is reset so the same batch
+        doesn't re-trip every subsequent doc (a persisting fault re-accumulates and re-fires)."""
+        batch = list(self._trace_windows.get(skill_id, []))
+        # audit cross-check (rule_defect detection): re-validate this format's immutable pool; any
+        # rule now firing on it is corrupted, so freeze it before classifying — the peel then
+        # exonerates skill failures that carry only corrupted rules.
+        audit = self.auditor.audit(self.pool, fingerprint)
+        if audit.corrupted_rules:
+            self._frozen_rules |= set(audit.corrupted_rules)
+        result = self.attributor.classify(batch, frozen_rules=self._frozen_rules)
+        batch_id = f"{skill_id}:{reason}"
+        verdict = result.to_verdict(batch_id)
+
+        if result.root_cause in ("skill_defect", "data_drift"):
+            for _ in result.charged_doc_ids:  # attribution-corrected ledger write (the skill's fault)
+                self.registry.record_outcome(skill_id, False, attributed=True)
+            verdict.action_taken = "deprecate_resynthesize"
+            self._log_attribution(skill_id, verdict, reason)
+            self._deprecate_and_reset(skill_id, fingerprint, f"{result.root_cause}:{reason}")
+            return
+
+        if result.root_cause == "routing_error":
+            verdict.action_taken = "quarantine_route"
+            self.registry.log_event(skill_id, "routing_quarantine",
+                                    {"exonerated": len(result.exonerated_doc_ids), "reason": reason})
+            self._ambiguous_counts.pop(skill_id, None)
+        elif result.root_cause == "rule_defect":
+            # the audit (run above) is the SOLE freezing authority — it only flags rules that fire
+            # on the immutable, previously-passing pool, so it can never freeze a legitimately-fired
+            # rule. Deriving the freeze from the batch instead would also freeze the LEGITIMATE
+            # rules that routing-exonerated (misrouted) docs fired (date / required-field checks),
+            # and _frozen_rules is global + monotone → permanent silent masking of future genuine
+            # skill failures. So we report what the audit froze and add nothing here.
+            verdict.action_taken = f"freeze_rules:{sorted(audit.corrupted_rules)}"
+            self._ambiguous_counts.pop(skill_id, None)
+        else:  # ambiguous — honest fallback: no charge, no remedy, escalate on repetition
+            self._ambiguous_counts[skill_id] = self._ambiguous_counts.get(skill_id, 0) + 1
+            verdict.action_taken = "logged_no_remedy"
+            if self._ambiguous_counts[skill_id] >= self.ambiguous_meta_review:
+                self.registry.log_event(skill_id, "meta_review_flag",
+                                        {"consecutive_ambiguous": self._ambiguous_counts[skill_id]})
+
+        self._log_attribution(skill_id, verdict, reason)
+        self.monitor.drop(skill_id)           # reset detection window (paired with the remedy above)
+        self._trace_windows.pop(skill_id, None)
+
+    def _log_attribution(self, skill_id: str, verdict, reason: str) -> None:
+        self.attributions.append({"skill_id": skill_id, "reason": reason,
+                                  **verdict.model_dump()})
+        self.registry.log_event(skill_id, "attribution", verdict.model_dump())
 
     def _deprecate_and_reset(self, skill_id: str, fingerprint: str, reason: str) -> None:
         """Deprecate a skill and open a fresh synthesis campaign for its format: tombstone the
@@ -224,6 +323,8 @@ class Pipeline:
         self.registry.deprecate(skill_id, reason)
         self.monitor.drop(skill_id)
         self._trial_passes.pop(skill_id, None)
+        self._trace_windows.pop(skill_id, None)
+        self._ambiguous_counts.pop(skill_id, None)
         self.pool.invalidate(fingerprint)
         self.admission.reset_holdout(fingerprint)
         prev = self._synth_state.get(fingerprint, {"campaign": 0})
@@ -282,7 +383,14 @@ class Pipeline:
 
     # ---- public API ------------------------------------------------------
 
-    def process(self, document: Document, ground_truth: Optional[GroundTruth] = None) -> Trace:
+    def process_verbose(
+        self, document: Document, ground_truth: Optional[GroundTruth] = None
+    ) -> tuple[ExtractionResult, Trace]:
+        """Run one document and return (extraction, trace). The service needs the extracted fields
+        (the trace carries only routing/validation/cost); everything else uses `process`."""
         final = self._app.invoke({"document": document, "ground_truth": ground_truth})
         self._lifecycle(final["fingerprint_hash"])
-        return final["trace"]
+        return final["extraction"], final["trace"]
+
+    def process(self, document: Document, ground_truth: Optional[GroundTruth] = None) -> Trace:
+        return self.process_verbose(document, ground_truth)[1]

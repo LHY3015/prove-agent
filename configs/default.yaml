@@ -35,6 +35,15 @@ ledger:
   prior: 1
   decay: 0.97
 
+# attribution (A3 only). A fired monitor batch is classified to a root cause; only skill-fault
+# failures charge the ledger. conf_tau: route_confidence below this is a mis-delivery (exact
+# hits ~1.0, cross-format Jaccard ~0.4, so the gap is wide). drift_prefix_frac: clean fraction of
+# the batch that must precede the first residual failure to read as abrupt onset (drift vs defect).
+attribution:
+  conf_tau: 0.9
+  drift_prefix_frac: 0.4
+  ambiguous_meta_review: 2   # consecutive ambiguous verdicts before flagging for meta-review
+
 sandbox:
   cpu_seconds: 5
   mem_mb: 512
