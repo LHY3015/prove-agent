@@ -27,8 +27,10 @@ forgets 4).
 ```
 prove-agent/
 ├── configs/default.yaml        # thresholds, model names, paths, ablation flags
-├── src/prove/                  # pipeline components (see IMPLEMENTATION_PLAN §2)
+├── src/prove/                  # pipeline components
+│   └── datasets/               # real-dataset adapters (CORD-v2 → the text_layout ABI)
 ├── evals/                      # ablation runner, plots, scenarios
+│   └── live_results/           # real-Qwen run artifacts + the parser code synthesised
 └── tests/                      # pytest unit + integration tests
 ```
 
@@ -234,14 +236,14 @@ One arm measures a mechanism that these numbers led to removing; it is reported 
 others so the removal can be checked against the data behind it.
 
 |                              | weak        | weak + cross-verify † | **strong**    | weak + rule 6 |
-| ---------------------------- | ----------- | ------------------- | ------------------- | ------------- |
-| extraction model             | qwen-turbo  | qwen-turbo          | **qwen-plus** | qwen-turbo    |
-| mean field F1                | 0.919       | 0.921               | **1.000**     | 0.921         |
-| validation pass rate         | 0.507       | 0.505               | **1.000**     | 0.498         |
-| skill-served docs            | 115         | 76                  | **198**       | 97            |
-| **pool contamination** | **7** | —                  | —                  | **0**   |
-| active skills                | 6           | 4                   | **10**        | 5             |
-| total tokens                 | 260,669     | 292,289             | 312,788             | 234,674       |
+| ---------------------------- | ----------- | ---------------------- | ------------------- | ------------- |
+| extraction model             | qwen-turbo  | qwen-turbo             | **qwen-plus** | qwen-turbo    |
+| mean field F1                | 0.919       | 0.921                  | **1.000**     | 0.921         |
+| validation pass rate         | 0.507       | 0.505                  | **1.000**     | 0.498         |
+| skill-served docs            | 115         | 76                     | **198**       | 97            |
+| **pool contamination** | **7** | —                     | —                  | **0**   |
+| active skills                | 6           | 4                      | **10**        | 5             |
+| total tokens                 | 260,669     | 292,289                | 312,788             | 234,674       |
 
 † This arm measures the cross-model verifier, which was removed on the strength of these
 numbers — the verifier and its `--verify-model` flag are no longer in the tree, so this column
@@ -381,7 +383,7 @@ real-data routing below the attribution confidence threshold and break blame ass
 way. Offline, the loop also cannot reach synthesis (the key-free synthesizer has no skill for a
 real format), so building a skill from CORD requires `--live`.
 
-109 tests pass with no API key. See `local/IMPLEMENTATION_PLAN.md` for the roadmap; the remaining
+125 tests pass with no API key. See `local/IMPLEMENTATION_PLAN.md` for the roadmap; the remaining
 upside (pool-poisoning meta-review, the ambiguous→LLM escalation path) is tracked in `local/log.md`.
 
 ## Development
