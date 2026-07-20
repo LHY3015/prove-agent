@@ -51,7 +51,7 @@ uv run python scenarios/routing_noise_demo.py     # → evals/out/routing_noise_
 
 ```bash
 uv run python scenarios/drift_demo.py           # template drift → deprecate → resynthesize → healed
-uv run python scenarios/compound_demo.py        # routing noise + drift in one stream: the peel as a peel
+uv run python scenarios/compound_demo.py        # routing noise + drift in one stream, resolved separately
 uv run python -m evals.ablation_curves          # re-runs A0-A3, writes the learning/cost/silent-failure figures
 uv run python -m evals.attribution_matrix       # injected-vs-attributed root-cause matrix
 uv run python -m evals.ablation --config A0     # a single arm: A0 | A1 | A2 | A3
@@ -161,6 +161,12 @@ stateDiagram-v2
 *Which* memory to forget is a mixed signal: a routing misdelivery, a corrupted validator rule, an
 unreadable scan, and a genuinely broken skill all look identical at the skill's door. Attribution
 decomposes a failure batch **per document** before the ledger forgets anything.
+
+It works by **peeling**: each deterministic test removes from the batch the failures it can account
+for and charges them to their own account, and only what survives every test — the *residual* — may
+be charged to the skill. Peeling per document rather than judging the batch as a whole is what lets
+a mixed batch resolve correctly: routing noise arriving during a genuine defect no longer masks
+either one.
 
 ```mermaid
 flowchart TD
