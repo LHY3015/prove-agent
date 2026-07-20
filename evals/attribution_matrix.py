@@ -21,7 +21,7 @@ from pathlib import Path
 
 from evals.ablation import SimulatedLLM
 from evals.fake_skills import SpecializedSynthesizer
-from evals.plots import plot_confusion_matrix
+from evals.plots import plot_confusion_matrix, publish
 from scenarios.routing_noise_demo import build_data, run_arm
 
 from prove.config import load_config
@@ -81,8 +81,8 @@ class _SwitchableValidator:
         self.corrupt = False
         self._corrupt_fn = corrupt_validator("USD")
 
-    def __call__(self, result, gt=None):
-        return self._corrupt_fn(result, gt) if self.corrupt else validate(result, gt)
+    def __call__(self, result, gt=None, **kwargs):
+        return self._corrupt_fn(result, gt, **kwargs) if self.corrupt else validate(result, gt, **kwargs)
 
 
 def rule_defect_verdicts(seed: int = 5) -> list[str]:
@@ -126,7 +126,8 @@ def main() -> None:
     _OUT.mkdir(parents=True, exist_ok=True)
     result = build_matrix()
     (_OUT / "attribution_matrix.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-    plot = plot_confusion_matrix(result["matrix"], LABELS, _OUT / "attribution_confusion.png")
+    plot = publish(plot_confusion_matrix(result["matrix"], LABELS,
+                                     _OUT / "attribution_confusion.png"))
     print(json.dumps({k: v for k, v in result.items() if k != "matrix"}, indent=2))
     print(f"confusion matrix -> {plot}")
 

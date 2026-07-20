@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from evals.ablation import SimulatedLLM  # noqa: E402
 from evals.fake_skills import SpecializedSynthesizer  # noqa: E402
-from evals.plots import plot_routing_noise_comparison  # noqa: E402
+from evals.plots import plot_routing_noise_comparison, publish  # noqa: E402
 
 from prove.config import load_config  # noqa: E402
 from prove.datagen.faults import NoisyRouter  # noqa: E402
@@ -150,8 +150,8 @@ def main() -> None:
     _OUT.mkdir(parents=True, exist_ok=True)
     (_OUT / "routing_noise_summary.json").write_text(
         json.dumps(result["summary"], indent=2), encoding="utf-8")
-    plot = plot_routing_noise_comparison(result["a2_rows"], result["a3_rows"],
-                                         _OUT / "routing_noise_comparison.png")
+    plot = publish(plot_routing_noise_comparison(result["a2_rows"], result["a3_rows"],
+                                                 _OUT / "routing_noise_comparison.png"))
     print(json.dumps(result["summary"], indent=2))
     s = result["summary"]
     print(f"\nSmart data-forgetting — under {int(s['noise_rate'] * 100)}% routing noise: "

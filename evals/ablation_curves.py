@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 
 from evals.ablation import _OUT_DIR, run_ablation
-from evals.plots import plot_learning_and_cost, plot_silent_failure
+from evals.plots import plot_learning_and_cost, plot_silent_failure, publish
 
 
 def _rows(config: str) -> list[dict]:
@@ -30,14 +30,14 @@ def main() -> None:
     for cfg in ("A0", "A1", "A2", "A3"):
         run_ablation(cfg, samples_per_format=n, seed=seed, live=False, error_rate=0.05)
         arms[cfg] = _rows(cfg)
-    curves = plot_learning_and_cost(arms, _OUT_DIR / "ablation_curves.png")
+    curves = publish(plot_learning_and_cost(arms, _OUT_DIR / "ablation_curves.png"))
 
     # silent-failure demo: A1 (no gate) vs A2 (gate), overfit synthesiser on the first 2 formats
     a1 = run_ablation("A1", samples_per_format=n, seed=seed, live=False,
                       error_rate=0.05, overfit_first_k=2)
     a2 = run_ablation("A2", samples_per_format=n, seed=seed, live=False,
                       error_rate=0.05, overfit_first_k=2)
-    silent = plot_silent_failure(a1, a2, _OUT_DIR / "silent_failure.png")
+    silent = publish(plot_silent_failure(a1, a2, _OUT_DIR / "silent_failure.png"))
 
     print(json.dumps({
         "A0_A3_cost_per_doc_tokens": {c: round(

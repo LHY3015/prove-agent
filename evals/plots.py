@@ -6,8 +6,23 @@ routing-noise comparison and the attribution confusion matrix.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
+
+# The README renders figures from docs/, while the eval scripts generate into evals/out/ (which is
+# gitignored). Every driver publishes through `publish()` so a regenerated figure reaches the
+# README in the same step — a figure updated in only one of the two shows the README a stale number.
+_DOCS_DIR = Path(__file__).resolve().parents[1] / "docs"
+
+
+def publish(path: str | Path) -> Path:
+    """Copy a generated figure into docs/. Returns the published path."""
+    path = Path(path)
+    _DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    dest = _DOCS_DIR / path.name
+    shutil.copyfile(path, dest)
+    return dest
 
 
 def _rolling(values: list[float], k: int) -> list[float]:

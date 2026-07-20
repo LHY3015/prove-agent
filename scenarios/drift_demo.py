@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root -> 
 
 from evals.ablation import SimulatedLLM  # noqa: E402
 from evals.fake_skills import SpecializedSynthesizer  # noqa: E402
-from evals.plots import plot_drift_timeline  # noqa: E402
+from evals.plots import plot_drift_timeline, publish  # noqa: E402
 
 from prove.config import load_config  # noqa: E402
 from prove.datagen.generator import FORMATS, DriftSpec, generate_stream  # noqa: E402
@@ -106,8 +106,8 @@ def main() -> None:
     result = run(args.n, args.drift_at, args.seed)
     _OUT.mkdir(parents=True, exist_ok=True)
     (_OUT / "drift_demo_timeline.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-    plot_path = plot_drift_timeline(result["rows"], result["summary"]["markers"],
-                                    _OUT / "drift_demo_timeline.png")
+    plot_path = publish(plot_drift_timeline(result["rows"], result["summary"]["markers"],
+                                            _OUT / "drift_demo_timeline.png"))
 
     s = result["summary"]
     print(json.dumps(s, indent=2))

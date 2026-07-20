@@ -156,17 +156,17 @@ stateDiagram-v2
   with fresh post-drift samples; that trigger-over-a-cleared-pool *is* the freshness gate, without
   which resynthesis would retrain on pre-drift data and re-deprecate in a loop.
 
-### Attribution — the peel
+### Attribution
 
 *Which* memory to forget is a mixed signal: a routing misdelivery, a corrupted validator rule, an
 unreadable scan, and a genuinely broken skill all look identical at the skill's door. Attribution
 decomposes a failure batch **per document** before the ledger forgets anything.
 
 ```mermaid
-flowchart LR
-    B["Failure batch<br/>(monitor window trips)"]:::state --> P0{"input integrity < τ ?"}
+flowchart TD
+    B["Failure batch<br/>(monitor window trips)"]:::state --> P0{"input integrity<br/>below τ ?"}
     P0 -->|"yes · peel"| IN["input_noise<br/>skill spared · ledger untouched<br/>quarantine document"]:::spare
-    P0 -->|no| P1{"route confidence < τ ?"}
+    P0 -->|no| P1{"route confidence<br/>below τ ?"}
     P1 -->|"yes · peel"| RE["routing_error<br/>skill spared · ledger untouched<br/>quarantine fingerprint"]:::spare
     P1 -->|no| P2{"failed only rules the audit<br/>finds firing on the clean pool?"}
     P2 -->|"yes · peel"| RD["rule_defect<br/>skill spared · ledger untouched<br/>freeze & repair rule"]:::spare
@@ -240,8 +240,6 @@ admission gate · **A2** gate and monitoring · **A3** = A2 + attribution.
 Without the gate, an overfit skill is admitted and emits confident, deterministic,
 *validation-passing* wrong fields; the gate rejects the identical candidate. A1 looks *cheaper*
 precisely because it serves more traffic from skills that should never have been admitted.
-
-![silent failures with and without the gate](docs/silent_failure.png)
 
 Per-document cost falls as skills come online and each format stops re-invoking the LLM:
 
@@ -387,31 +385,21 @@ prove-agent/
 ## Configuration
 
 Everything tunable lives in [`configs/default.yaml`](configs/default.yaml): the per-role model tiering
-(`model.extraction` / `model.synthesis` / `model.attribution` — never hardcode a model name
-elsewhere), `synthesis_trigger` and `trial_docs`, the admission thresholds, the monitor window and
+(`model.extraction` / `model.synthesis` / `model.attribution` ), `synthesis_trigger` and `trial_docs`, the admission thresholds, the monitor window and
 confidence floor, the ledger's Beta prior and decay, attribution's `conf_tau` / `integrity_tau` /
-`drift_prefix_frac`, sandbox limits, and `ablation.mode`. Each entry carries a comment explaining
-what it controls.
+`drift_prefix_frac`, sandbox limits, and `ablation.mode`.
 
 ## Limitations
 
-- **`routing_error`'s remedy is to spare the ledger and log a quarantine event.** The misrouted
-  document still fails validation loudly — never silent garbage — but enacting the re-route is a
-  router-subsystem change; repeated quarantine verdicts are the signal a real router-repair hook
-  would consume.
-- **A3 degrades toward A2 under heavy noise, by design.** If the batch contains no clean
-  high-confidence baseline, the peel cannot prove the skill works, so it conservatively charges the
-  skill.
 - **A self-supervised admission oracle is bounded by the extractor's systematic-error floor.**
   Admission compares a candidate against its format's verified pool, and the pool is LLM-produced.
   Where the extractor is systematically wrong on a field no cross-field rule constrains, the pool
   encodes the error, the skill reproduces it, and admission sees agreement. This is why the fix for
   pool contamination was a new cross-field rule rather than a stronger gate.
-- **Recurrence on real scans needs a fuzzy router.** Deliberately not attempted: coarser coordinate
-  buckets force a lower exact-match threshold, which would drop all real-data routing below
-  attribution's confidence threshold and break blame assignment in a new way. Routing and
-  attribution have to be recalibrated together.
-- **`_frozen_rules` is global across formats** (matching the validator-wide fault model) and
-  monotone — rule *repair* is out of scope.
-- **Offline, the loop cannot reach synthesis on real data**, since the key-free synthesiser double
-  has no skill for a real format. Building a skill from CORD requires `--live`.
+- **A3 degrades toward A2 under heavy noise, by design.** If a batch contains no clean
+  high-confidence baseline, the peel cannot prove the skill works, so it conservatively charges the
+  skill.
+- **Recurrence on real scans needs a fuzzy router.** Coarser coordinate buckets force a lower
+  exact-match threshold, which would drop all real-data routing below attribution's confidence
+  threshold and break blame assignment in a new way — routing and attribution have to be
+  recalibrated together.
