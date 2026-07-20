@@ -57,13 +57,22 @@ def _parse_date(value: str) -> Optional[datetime.date]:
 
 
 def validate(
-    result: ExtractionResult, ground_truth: Optional[GroundTruth] = None
+    result: ExtractionResult,
+    ground_truth: Optional[GroundTruth] = None,
+    *,
+    profile: Optional[list[str]] = None,
 ) -> ValidationVerdict:
+    """`profile` narrows the field schema to those a dataset actually labels (the real-data
+    adapters supply one). Rules 2-5 are already conditional on a field being present, so a
+    profile only changes which fields are REQUIRED and which are scored — the surviving rules
+    are unchanged in strength. Narrowing the profile genuinely weakens the verifier, and with it
+    the trust the pool confers: state the profile whenever reporting numbers from one."""
     fields = result.fields
+    target = profile or TARGET_FIELDS
     failures: list[str] = []
 
     # 1. required fields present
-    for f in TARGET_FIELDS:
+    for f in target:
         if not str(fields.get(f, "")).strip():
             failures.append(f"missing_field:{f}")
 
@@ -100,7 +109,7 @@ def validate(
     if ground_truth is not None:
         field_diffs = {
             f: str(fields.get(f, "")) == str(ground_truth.fields.get(f, ""))
-            for f in TARGET_FIELDS
+            for f in target
         }
 
     return ValidationVerdict(
@@ -131,10 +140,18 @@ def field_match(name: str, predicted: str, expected: str) -> bool:
     return p == e
 
 
-def compare_fields(predicted: dict[str, str], expected: dict[str, str]) -> dict[str, bool]:
-    """Per-field match map over the target schema (True = matches expected)."""
+def compare_fields(
+    predicted: dict[str, str],
+    expected: dict[str, str],
+    *,
+    profile: Optional[list[str]] = None,
+) -> dict[str, bool]:
+    """Per-field match map over the target schema (True = matches expected). `profile` narrows
+    it to a dataset's labelled fields, so the admission gate is not scored against fields the
+    dataset never labels."""
     return {
-        f: field_match(f, predicted.get(f, ""), expected.get(f, "")) for f in TARGET_FIELDS
+        f: field_match(f, predicted.get(f, ""), expected.get(f, ""))
+        for f in (profile or TARGET_FIELDS)
     }
 
 
