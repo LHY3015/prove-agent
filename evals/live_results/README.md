@@ -13,9 +13,8 @@ Endpoint: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Dated 2026-0
 
 ## The arms
 
-Arm 2 (`weak_xverify`) **cannot be reproduced from the current tree** — the cross-model verifier
-and its `--verify-model` flag were deleted after this run, for the reasons under "What these arms
-establish" below. Its artifacts are kept as the evidence that justified the deletion.
+Arm 2 (`weak_xverify`) is not reproducible from the current tree: the cross-model verifier and
+its `--verify-model` flag were removed after this run (see below).
 
 | | arm 1 `weak` | arm 2 `weak_xverify` † | arm 3 `strong` |
 | --- | --- | --- | --- |
@@ -29,13 +28,12 @@ establish" below. Its artifacts are kept as the evidence that justified the dele
 | admission rejections | 8 | 11 | 14 |
 | total tokens | 260,669 | 292,289 | 312,788 |
 
-`A3_live_*` is the earlier 210-document run at 15 docs/format that first exposed the
-silent-failure mechanism; it is kept because it is the evidence for that finding.
+`A3_live_*` is an earlier 210-document run at 15 docs/format.
 
-`skills/` and `skills_strong/` hold the **verbatim parser code** the synthesiser wrote, kept as
-artifacts. They are excluded from linting — editing them would destroy what they document.
+`skills/` and `skills_strong/` hold the **verbatim parser code** the synthesiser wrote. They are
+excluded from linting.
 
-## What these arms establish
+## Results
 
 **1. Extraction-model choice, not the pipeline, drove the earlier failures.** Same prompt, same
 rules, same synthesiser: validation pass rate goes 0.51 → **1.00** and field F1 0.919 → **1.00**
@@ -43,7 +41,7 @@ purely by moving extraction from qwen-turbo to qwen-plus, for 20% more tokens. q
 dominant error is layout-conditioned — a `Tax 8.25% 365.11` line leads it to return the *rate*
 where the schema declares a money *amount*.
 
-**2. The validator earns its keep where it has a cross-field check.** Under the weak extractor,
+**2. Cross-field checks held.** Under the weak extractor,
 `money_unparseable` fired 180 times and `date_unparseable` 27, keeping every one of those samples
 out of the verified pool — so no skill was ever synthesised from them. Skill-served documents
 recorded **zero** validation failures in every arm.
@@ -55,29 +53,26 @@ detection rate on the one genuinely contaminated field was ~20-29%, because the 
 shares the same layout-induced confusion: **correlated errors defeat cross-model agreement**, and
 layout ambiguity produces correlated errors by construction. A deterministic cross-field rule
 (field-overlap, rule 6) caught **7/7** of the same contaminations at zero API cost, so the module
-was deleted rather than kept as unused surface.
+was removed.
 
-**4. Attribution issued zero verdicts in every arm, and that is correct.** Attribution classifies
+**4. Attribution issued zero verdicts in every arm.** Attribution classifies
 *failure batches* raised by the monitor, and the monitor watches validation outcomes. Skill-served
 documents had zero validation failures, so no batch ever formed. Silent failures — which pass
 validation by definition — are structurally invisible to the monitor and therefore to attribution.
-They are the admission gate's problem, not the accountant's. Earlier framing that more traffic per
-format would make attribution fire was wrong: the bottleneck is failures, not volume.
+They are the admission gate's concern; the bottleneck for attribution is failures, not volume.
 
 ## Cost
 
-Tokens are the unit here, not dollars. `cost_usd: 0.0` in these files is a **null artifact**, not
+Spend is reported in tokens. `cost_usd: 0.0` in these files is a **null artifact**, not
 a measurement: cost accounting is implemented and provider-agnostic, but Qwen Cloud bills by
 credit subscription with no published per-token rate table, so `costs:` in the config is empty.
 
-Synthesis is the larger consumer and was previously invisible — arm 1 spent 135,367 input tokens
-on synthesis against 83,203 on extraction. Skill-served documents consume **zero** marginal
-inference tokens; amortisation is the mechanism, and the synthesis cost is what it amortises
-against.
+Synthesis is the larger consumer: arm 1 spent 135,367 input tokens on synthesis against 83,203 on
+extraction. Skill-served documents consume **zero** marginal inference tokens, which is what the
+synthesis cost amortises against.
 
 ## Auditability limits
 
 Traces store extracted field *values* and the registry is persisted per arm, so these runs are
-replayable — both were added after the first live run proved un-auditable. Two limits remain:
-arm 2's per-sample disagreement values were not persisted (only counts), and the 210-document
-`A3_live_*` run predates all of this instrumentation.
+replayable. Two limits: arm 2's per-sample disagreement values were not persisted (only counts),
+and the 210-document `A3_live_*` run predates this instrumentation.

@@ -108,7 +108,7 @@ failures — it never scores output quality.*
   charged to the root cause, not the symptom. Unique among the accounts in having no party to
   charge and nothing to repair: the remedy is to quarantine the document. Without it a degraded doc
   routes exactly, fails at high confidence, survives every other peel, and is charged to a healthy
-  skill as `skill_defect` — the precise miscarriage the module exists to prevent.
+  skill as `skill_defect`.
 - **Deferred charging** (`pipeline.py`): in A3 a skill *pass* charges the ledger immediately
   (unambiguous), but a *failure* is only logged until the batch is attributed — β is charged **iff**
   attribution finds the skill at fault. A2 charges every failure raw (no attribution). That one
@@ -149,7 +149,7 @@ hypothesis (what's left after routing/rule/drift are peeled) and has no clean pr
 executor identity + confidence, the per-rule validation verdict, and cost, all lifted from the
 Trace. Auditability is a first-class output, not a bolt-on log.
 
-**Designed limitations (honest scope).** *routing_error*'s remedy is to spare the skill's ledger and
+**Designed limitations.** *routing_error*'s remedy is to spare the skill's ledger and
 log a quarantine event — the misrouted document still fails validation loudly (never silent garbage);
 enacting the re-route is a router-subsystem change, and repeated quarantine verdicts are the signal a
 real router-repair hook would consume. Under *heavy* noise (contrast lost — no clean high-confidence
@@ -225,13 +225,12 @@ route hit on an active/trial skill → sandbox executes the code → validator c
 
 </details>
 
-### Live runs — real Qwen, and what they changed
+### Live runs — real Qwen
 
 Everything above is key-free simulated. The live arms below run real `qwen-turbo` / `qwen-plus`
 (extraction) and `qwen-coder-plus` (synthesis) over 420 documents each; artifacts, including the
 **verbatim parser code the synthesiser wrote**, are in [`evals/live_results/`](evals/live_results/).
-They are reported in full, including a negative result and a mechanism that was built, measured,
-and then deleted — that sequence is the most useful thing here.
+Results include one negative arm, for a mechanism that was measured and then removed.
 
 |                              | weak        | weak + cross-verify † | **strong**    | weak + rule 6 |
 | ---------------------------- | ----------- | ------------------- | ------------------- | ------------- |
@@ -243,18 +242,17 @@ and then deleted — that sequence is the most useful thing here.
 | active skills                | 6           | 4                   | **10**        | 5             |
 | total tokens                 | 260,669     | 292,289             | 312,788             | 234,674       |
 
-† **This arm is not reproducible from the current tree.** The cross-model verifier it measures was
-deleted after this run (reasoning below), along with its `--verify-model` flag. The column is kept
-because deleting a mechanism on the strength of a measurement requires showing the measurement;
-its raw artifacts are in [`evals/live_results/`](evals/live_results/). Every other column
-reproduces from `python -m evals.ablation --config A3 --live --samples-per-format 30 --tag <arm>`.
+† Not reproducible from the current tree: the cross-model verifier and its `--verify-model` flag
+were removed after this run (see below). Artifacts are in
+[`evals/live_results/`](evals/live_results/). The other columns reproduce with
+`python -m evals.ablation --config A3 --live --samples-per-format 30 --tag <arm>`.
 
 **The extraction model, not the pipeline, drove the failures.** Same prompt, same rules, same
 synthesiser: pass rate 0.51 → **1.00** purely by moving extraction to `qwen-plus`, for 20% more
 tokens. `qwen-turbo`'s dominant error is layout-conditioned — a `Tax 8.25% 365.11` line makes it
 return the *rate* where the schema declares a money *amount*.
 
-**Where the validator has a cross-field check, it holds.** Under the weak extractor
+**Cross-field checks held.** Under the weak extractor
 `money_unparseable` fired 180 times and `date_unparseable` 27, keeping every one of those samples
 out of the pool, so no skill was ever synthesised from them. Skill-served documents recorded
 **zero** validation failures in every arm.
@@ -271,12 +269,12 @@ errors defeat cross-model agreement**), +12% tokens, and it *slowed skill format
 rejecting samples shrinks pools. A three-line deterministic cross-field rule (fields must not
 swallow one another) caught **2/2** live, **7/7** on replay of the prior run's actual outputs, and
 **0/420** false positives on perfect extractions — at zero API cost. The cross-model module was
-deleted rather than kept as unused surface.
+removed.
 
-> The general lesson: when a field has no constraint, write one — don't buy a second opinion.
-> Every systematic error observed here was already caught by something cheaper.
+Every systematic error observed in these runs was caught by a deterministic rule rather than by
+a second model.
 
-**Attribution issued zero verdicts in every arm, and that is correct.** It classifies *failure
+**Attribution issued zero verdicts in every arm.** It classifies *failure
 batches* raised by the monitor, and the monitor watches validation outcomes. Skill-served documents
 had zero validation failures, so no batch formed. Silent failures pass validation by definition and
 are therefore structurally invisible to the monitor — they are the admission gate's problem, not
@@ -321,7 +319,7 @@ formats and date errors on a seventh were caught by `money_unparseable` / `date_
 keeping corrupt samples out of the pool so those seven bad skills were **never synthesized**. The
 gate is also non-vacuous on real code: it **rejected 4** synthesized candidates and admitted 7.
 
-**Severity, stated honestly.** Nine of the eleven are `invoice_number` on the two `banner.html`
+**Severity.** Nine of the eleven are `invoice_number` on the two `banner.html`
 formats — the only template that renders `#{{ invoice_number }}` while ground truth stores the
 value without the `#`. The LLM copied the page verbatim, as its prompt instructs. So the *instance*
 is a low-severity normalization mismatch that our own benchmark convention created, not a
@@ -331,7 +329,7 @@ self-supervised oracle, whether the divergence is one character or a fabricated 
 two failures are a genuine skill **generalization** defect — `line_item_count` on F1_acme, wrong on
 exactly the production docs with 5 line items, which a 3-document holdout had no power to detect.
 
-> **The conclusion, stated as a law:** a self-supervised admission oracle bounds skill quality at
+> A self-supervised admission oracle bounds skill quality at
 > the extractor's systematic-error floor. Deterministic outcome verification is only as strong as
 > the cross-checks in the rule set — it cannot manufacture signal about fields no rule constrains.
 
@@ -345,7 +343,7 @@ run had 15, so `active` was arithmetically unreachable.
 consumed **zero** marginal inference tokens — a compiled skill's per-document cost is CPU only.
 The `cost_usd: 0.0` fields in the live artifacts are a **null artifact, not a measurement**: cost
 accounting is implemented and provider-agnostic, but Qwen Cloud bills by credit subscription with
-no published per-token rate table, so `costs:` is empty and tokens are the honest unit.
+no published per-token rate table, so `costs:` is empty and spend is reported in tokens.
 
 **Auditability limit.** The live run is not fully post-hoc auditable: the registry ran in-memory so
 the synthesized skill code is gone, and traces store per-field booleans rather than extracted
