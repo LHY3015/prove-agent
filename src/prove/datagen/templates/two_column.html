@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 2cm; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 11px; color: #111; }
+  h2.heading { text-align: left; font-size: 24px; font-weight: bold; letter-spacing: 3px; margin: 0 0 22px 0; color: #333; }
+  .header { width: 100%; }
+  .meta { float: left; width: 40%; }
+  .meta div { margin-bottom: 3px; }
+  .vendor { float: right; width: 55%; text-align: right; }
+  .vendor .name { font-size: 16px; font-weight: bold; }
+  .clear { clear: both; }
+  table.items { width: 100%; border-collapse: collapse; margin-top: 30px; }
+  table.items th, table.items td { border-bottom: 1px solid #999; padding: 6px 4px; text-align: left; }
+  table.items td.num, table.items th.num { text-align: right; }
+  table.totals { float: right; margin-top: 18px; }
+  table.totals td { padding: 4px 8px; }
+  table.totals td.label { text-align: right; color: #555; }
+  table.totals td.val { text-align: right; font-weight: bold; }
+  table.totals tr.grand td { font-size: 14px; border-top: 2px solid #111; }
+</style>
+</head>
+<body>
+  <h2 class="heading">INVOICE</h2>
+  <div class="header">
+    <div class="meta">
+      <div>Invoice No: {{ invoice_number }}</div>
+      <div>Date: {{ invoice_date_str }}</div>
+      <div>Currency: {{ currency }}</div>
+    </div>
+    <div class="vendor">
+      <div class="name">{{ vendor_name }}</div>
+      <div>{{ vendor_address }}</div>
+    </div>
+    <div class="clear"></div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Amount</th></tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+      <tr><td>{{ it.desc }}</td><td class="num">{{ it.qty }}</td><td class="num">{{ it.unit_price }}</td><td class="num">{{ it.amount }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table class="totals">
+    <tr><td class="label">Subtotal</td><td class="val">{{ subtotal_str }}</td></tr>
+    <tr><td class="label">Tax ({{ tax_rate_str }})</td><td class="val">{{ tax_str }}</td></tr>
+    <tr class="grand"><td class="label">Total</td><td class="val">{{ total_str }}</td></tr>
+  </table>
+</body>
+</html>

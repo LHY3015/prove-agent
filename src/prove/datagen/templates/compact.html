@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 2.5cm 4.5cm; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 10px; color: #111; }
+  h3.heading { font-size: 15px; font-weight: bold; margin: 0 0 10px 0; letter-spacing: 1px; }
+  .field { margin-bottom: 2px; }
+  .field .k { color: #555; }
+  table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
+  table.items td { padding: 3px 2px; border-bottom: 1px solid #ddd; }
+  table.items .num { text-align: right; }
+  .totals { margin-top: 10px; }
+  .totals div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .totals .grand { font-weight: bold; border-top: 1px solid #111; margin-top: 3px; padding-top: 4px; }
+</style>
+</head>
+<body>
+  <h3 class="heading">INVOICE</h3>
+  <div class="field"><span class="k">Bill From:</span> {{ vendor_name }}, {{ vendor_address }}</div>
+  <div class="field"><span class="k">Invoice:</span> {{ invoice_number }}</div>
+  <div class="field"><span class="k">Currency:</span> {{ currency }}</div>
+  <div class="field"><span class="k">Dated:</span> {{ invoice_date_str }}</div>
+  <table class="items">
+    <tbody>
+      {% for it in items %}
+      <tr><td>{{ it.desc }}</td><td class="num">{{ it.qty }} x {{ it.unit_price }}</td><td class="num">{{ it.amount }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="totals">
+    <div><span>Subtotal</span><span>{{ subtotal_str }}</span></div>
+    <div><span>Tax {{ tax_rate_str }}</span><span>{{ tax_str }}</span></div>
+    <div class="grand"><span>Total</span><span>{{ total_str }}</span></div>
+  </div>
+</body>
+</html>

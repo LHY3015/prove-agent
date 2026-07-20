@@ -69,6 +69,18 @@ FORMATS: list[FormatSpec] = [
                "1 Chocolate Way, London", "GBP", "%Y/%m/%d", "WNK-", 0.10),
     FormatSpec("F8_cyberdyne", "receipt.html", "Cyberdyne Systems",
                "18144 El Camino, Sunnyvale", "USD", "%b %d %Y", "CYB-", 0.05),
+    FormatSpec("F9_helios", "two_column.html", "Helios Energy Partners",
+               "55 Solar Ave, Phoenix", "JPY", "%Y-%m-%d", "HEL-", 0.08),
+    FormatSpec("F10_nakatomi", "two_column.html", "Nakatomi Trading Co",
+               "34 Harbor Rd, Osaka", "CNY", "%d.%m.%Y", "NAK-", 0.13),
+    FormatSpec("F11_gringotts", "boxed.html", "Gringotts Vaults Ltd",
+               "1 Diagon Alley, London", "GBP", "%m/%d/%Y", "GRG-", 0.20),
+    FormatSpec("F12_oscorp", "boxed.html", "Oscorp Materials Inc",
+               "5 Chrysler Plaza, New York", "USD", "%b %d, %Y", "OSC-", 0.0875),
+    FormatSpec("F13_tyrell", "compact.html", "Tyrell Analytics Group",
+               "400 Off World Blvd, Los Angeles", "EUR", "%Y/%m/%d", "TYR-", 0.19),
+    FormatSpec("F14_soylent", "compact.html", "Soylent Provisions LLC",
+               "77 Green Fields Rd, Chicago", "SGD", "%d/%m/%Y", "SOY-", 0.07),
 ]
 
 

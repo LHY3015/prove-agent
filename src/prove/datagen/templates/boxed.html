@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 2cm; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 11px; color: #222; }
+  .card { border: 2px solid #444; padding: 14px 18px; margin-bottom: 26px; }
+  .card .name { font-size: 18px; font-weight: bold; margin-bottom: 4px; }
+  .card .row { margin-bottom: 3px; }
+  .card .label { color: #666; display: inline-block; width: 90px; }
+  table.items { width: 100%; border-collapse: collapse; }
+  table.items th { background: #ddd; padding: 6px 4px; text-align: left; border-bottom: 2px solid #444; }
+  table.items td { padding: 6px 4px; border-bottom: 1px solid #ccc; }
+  table.items .num { text-align: right; }
+  table.totals { float: right; margin-top: 18px; }
+  table.totals td { padding: 4px 8px; }
+  table.totals td.label { text-align: right; color: #555; }
+  table.totals td.val { text-align: right; font-weight: bold; }
+  table.totals tr.grand td { font-size: 14px; border-top: 2px solid #444; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="name">{{ vendor_name }}</div>
+    <div class="row">{{ vendor_address }}</div>
+    <div class="row"><span class="label">Invoice #</span>{{ invoice_number }}</div>
+    <div class="row"><span class="label">Date</span>{{ invoice_date_str }}</div>
+    <div class="row"><span class="label">Currency</span>{{ currency }}</div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Amount</th></tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+      <tr><td>{{ it.desc }}</td><td class="num">{{ it.qty }}</td><td class="num">{{ it.unit_price }}</td><td class="num">{{ it.amount }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table class="totals">
+    <tr><td class="label">Subtotal</td><td class="val">{{ subtotal_str }}</td></tr>
+    <tr><td class="label">Tax ({{ tax_rate_str }})</td><td class="val">{{ tax_str }}</td></tr>
+    <tr class="grand"><td class="label">Total</td><td class="val">{{ total_str }}</td></tr>
+  </table>
+</body>
+</html>
