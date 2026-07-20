@@ -173,8 +173,10 @@ def corrupt_validator(
     Wraps the real validator (it stays the judge) and only *adds* the spurious verdict — so the
     corruption is a strict over-tightening of one rule, not a rewrite."""
 
-    def _corrupted(result: ExtractionResult, gt: Optional[GroundTruth] = None) -> ValidationVerdict:
-        verdict = validate(result, gt)
+    def _corrupted(
+        result: ExtractionResult, gt: Optional[GroundTruth] = None, **kwargs
+    ) -> ValidationVerdict:
+        verdict = validate(result, gt, **kwargs)
         if str(result.fields.get("currency", "")).upper() == bad_currency.upper():
             if rule not in verdict.rule_failures:
                 verdict.rule_failures.append(rule)

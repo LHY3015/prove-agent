@@ -24,6 +24,14 @@ forgets 4).
 
 ## Layout
 
+```
+prove-agent/
+├── configs/default.yaml        # thresholds, model names, paths, ablation flags
+├── src/prove/                  # pipeline components (see IMPLEMENTATION_PLAN §2)
+├── evals/                      # ablation runner, plots, scenarios
+└── tests/                      # pytest unit + integration tests
+```
+
 ## Hard design rules
 
 1. No LLM component ever issues a quality verdict. Verdicts come only from deterministic
@@ -52,14 +60,6 @@ stateDiagram-v2
       deprecated → active is guarded (no resurrection);
       a healed format re-enters as a NEW-version candidate
     end note
-```
-
-```
-prove-agent/
-├── configs/default.yaml        # thresholds, model names, paths, ablation flags
-├── src/prove/                  # pipeline components (see IMPLEMENTATION_PLAN §2)
-├── evals/                      # ablation runner, plots, scenarios
-└── tests/                      # pytest unit + integration tests
 ```
 
 ## Status
@@ -233,7 +233,7 @@ Everything above is key-free simulated. The live arms below run real `qwen-turbo
 They are reported in full, including a negative result and a mechanism that was built, measured,
 and then deleted — that sequence is the most useful thing here.
 
-|                              | weak        | weak + cross-verify | **strong**    | weak + rule 6 |
+|                              | weak        | weak + cross-verify † | **strong**    | weak + rule 6 |
 | ---------------------------- | ----------- | ------------------- | ------------------- | ------------- |
 | extraction model             | qwen-turbo  | qwen-turbo          | **qwen-plus** | qwen-turbo    |
 | mean field F1                | 0.919       | 0.921               | **1.000**     | 0.921         |
@@ -242,6 +242,12 @@ and then deleted — that sequence is the most useful thing here.
 | **pool contamination** | **7** | —                  | —                  | **0**   |
 | active skills                | 6           | 4                   | **10**        | 5             |
 | total tokens                 | 260,669     | 292,289             | 312,788             | 234,674       |
+
+† **This arm is not reproducible from the current tree.** The cross-model verifier it measures was
+deleted after this run (reasoning below), along with its `--verify-model` flag. The column is kept
+because deleting a mechanism on the strength of a measurement requires showing the measurement;
+its raw artifacts are in [`evals/live_results/`](evals/live_results/). Every other column
+reproduces from `python -m evals.ablation --config A3 --live --samples-per-format 30 --tag <arm>`.
 
 **The extraction model, not the pipeline, drove the failures.** Same prompt, same rules, same
 synthesiser: pass rate 0.51 → **1.00** purely by moving extraction to `qwen-plus`, for 20% more

@@ -13,7 +13,11 @@ Endpoint: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Dated 2026-0
 
 ## The arms
 
-| | arm 1 `weak` | arm 2 `weak_xverify` | arm 3 `strong` |
+Arm 2 (`weak_xverify`) **cannot be reproduced from the current tree** — the cross-model verifier
+and its `--verify-model` flag were deleted after this run, for the reasons under "What these arms
+establish" below. Its artifacts are kept as the evidence that justified the deletion.
+
+| | arm 1 `weak` | arm 2 `weak_xverify` † | arm 3 `strong` |
 | --- | --- | --- | --- |
 | extraction model | qwen-turbo | qwen-turbo | **qwen-plus** |
 | pool verification | — | second extractor (qwen-max) | — |
