@@ -13,22 +13,24 @@ skill's admission, retention, and **forgetting** is decided by objective downstr
 account (skill defect / routing error / rule defect / data drift / degraded input), so a healthy
 memory is not forgotten for a failure it did not cause.
 
-![PROVE architecture — the loop](docs/architecture.png)
+### ▶ [Watch the animated walk-through](https://lhy3015.github.io/prove-agent/prove_explainer.html)
 
-An **animated walk-through** — cold start → a skill is learned → cost collapses → drift → smart
-forgetting → relearn — is in [`docs/prove_explainer.html`](docs/prove_explainer.html) (open it in a
-browser; no server needed).
+Cold start → a skill is learned → cost collapses → drift → smart forgetting → relearn, in about a
+minute. Source: [`docs/prove_explainer.html`](docs/prove_explainer.html) — it also opens straight
+from disk, no server needed.
+
+![PROVE architecture — the loop](docs/architecture.png)
 
 ---
 
 ## Qwen Cloud submission — Track 1, MemoryAgent
 
-| Requirement | Where |
-| --- | --- |
+| Requirement                     | Where                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Alibaba Cloud services and APIs | [`src/prove/llm_client.py`](src/prove/llm_client.py) — every real model call goes through `OpenAICompatClient` against Alibaba Cloud Model Studio (DashScope), `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Models and endpoint in [`configs/default.yaml`](configs/default.yaml). |
-| Architecture diagram | [`docs/architecture.png`](docs/architecture.png), below |
-| Live-run evidence | [`evals/live_results/`](evals/live_results/) — four real-Qwen arms of 420 documents, plus the parser code the model wrote |
-| Open source licence | [MIT](LICENSE) |
+| Architecture diagram            | [`docs/architecture.png`](docs/architecture.png)                                                                                                                                                                                                                                                      |
+| Live-run evidence               | [`evals/live_results/`](evals/live_results/) — four real-Qwen arms of 420 documents, plus the parser code the model wrote                                                                                                                                                                            |
+| Open source licence             | [MIT](LICENSE)                                                                                                                                                                                                                                                                                          |
 
 ## Quickstart
 
