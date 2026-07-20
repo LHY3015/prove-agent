@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from .sample_pool import PoolSample
 from .sandbox import run_skill
 from .schemas import TARGET_FIELDS
-from .validator import compare_fields
+from .validator import compare_fields, count_item_rows
 
 
 @dataclass
@@ -81,14 +81,50 @@ class Admission:
         self._holdout_ids.pop(fingerprint, None)
 
     def _choose_holdout(self, fingerprint: str, samples: list[PoolSample]) -> set[str]:
+        """Pick the frozen holdout, STRATIFIED by document complexity.
+
+        A uniformly random holdout of `min_holdout` (3) documents has almost no power over
+        structural variation: draw three 1-2 item invoices and a skill that miscounts 5-item
+        documents passes the gate untouched — which is exactly how a real generalization defect
+        survived admission in the live run. Stratifying by item-row count spends the same tiny
+        budget on the *widest* structural spread available, so the holdout probes the range
+        instead of sampling one point of it.
+
+        Ties and the residual are still broken by the existing seeded shuffle, so the split stays
+        deterministic and frozen per fingerprint.
+        """
         n = len(samples)
         k = max(self.min_holdout, round(self.holdout_frac * n))
         k = min(k, n - 1) if n > 1 else 0
+        if k <= 0:
+            return set()
+
         ordered = sorted(samples, key=lambda s: s.doc_id)
         stable = int(hashlib.sha1(fingerprint.encode()).hexdigest()[:8], 16)
         rng = random.Random(self.seed ^ stable)
         rng.shuffle(ordered)
-        return {s.doc_id for s in ordered[:k]}
+
+        # bucket by observed complexity; fall back to the pool's own reported count, then to a
+        # single bucket when the layout yields nothing (the shuffle alone then decides).
+        def complexity(s: PoolSample) -> int:
+            observed = count_item_rows(s.text_layout)
+            if observed is not None:
+                return observed
+            raw = str(s.fields.get("line_item_count", "")).strip()
+            return int(raw) if raw.isdigit() else 0
+
+        buckets: dict[int, list[PoolSample]] = {}
+        for s in ordered:
+            buckets.setdefault(complexity(s), []).append(s)
+
+        # round-robin across distinct complexity levels, widest spread first
+        picked: list[PoolSample] = []
+        levels = sorted(buckets)
+        while len(picked) < k and any(buckets[c] for c in levels):
+            for c in levels:
+                if buckets[c] and len(picked) < k:
+                    picked.append(buckets[c].pop())
+        return {s.doc_id for s in picked}
 
     # ---- evaluation ------------------------------------------------------
 

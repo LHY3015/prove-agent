@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 # All field values travel as strings; the validator parses/types them.
 # ---------------------------------------------------------------------------
 
-FieldDtype = Literal["str", "date", "money", "int"]
+FieldDtype = Literal["str", "date", "money", "int", "identifier"]
 
 
 class FieldSpec(BaseModel):
@@ -25,7 +25,7 @@ class FieldSpec(BaseModel):
 
 FIELD_SPECS: list[FieldSpec] = [
     FieldSpec(name="vendor_name", dtype="str"),
-    FieldSpec(name="invoice_number", dtype="str"),
+    FieldSpec(name="invoice_number", dtype="identifier"),
     FieldSpec(name="invoice_date", dtype="date"),
     FieldSpec(name="currency", dtype="str"),
     FieldSpec(name="subtotal", dtype="money"),
@@ -105,6 +105,11 @@ class Trace(BaseModel):
     skill_version: Optional[int] = None
     extraction_source: Literal["skill", "llm"]
     field_results: dict[str, bool] = Field(default_factory=dict)  # eval-mode field correctness
+    # the VALUES that were extracted, not just whether they matched. Booleans alone make a run
+    # un-replayable: "invoice_number was wrong" cannot be distinguished from "invoice_number was
+    # wrong by one leading '#'" after the fact, and that distinction changed this project's
+    # reading of its own live results.
+    extracted_fields: dict[str, str] = Field(default_factory=dict)
     validation: ValidationVerdict
     # CONTRACT (frozen): fraction of this document's tokens that are character-class clean, as
     # measured on the text_layout at ingestion (layout.input_integrity). 1.0 = pristine. It is a
