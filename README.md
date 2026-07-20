@@ -4,10 +4,6 @@
 executable skills** — written, recalled, and forgotten by deterministic downstream outcomes, with
 attribution deciding *which* memory to forget.
 
-> *Memory is experience that changes future behavior. PROVE governs **procedural memory,
-> materialized as executable skills**: experience is compiled into code, recalled instead of
-> re-reasoned, and kept or forgotten by downstream objective outcomes — never by an LLM's opinion.*
-
 As the agent processes documents it **accumulates its experience into executable skills (Python
 parser code)** — its procedural memory. It **recalls** a skill by document format instead of
 re-invoking the LLM, and each skill's admission, retention, and **forgetting** are decided entirely
@@ -25,6 +21,8 @@ forgets 4).
 > downstream check. An **animated walk-through** (cold start → a skill is learned → recall collapses
 > cost → drift → smart forgetting → relearn) lives in
 > [`docs/prove_explainer.html`](docs/prove_explainer.html).
+
+## Layout
 
 ## Hard design rules
 
@@ -56,8 +54,6 @@ stateDiagram-v2
     end note
 ```
 
-## Layout
-
 ```
 prove-agent/
 ├── configs/default.yaml        # thresholds, model names, paths, ablation flags
@@ -76,12 +72,12 @@ not cause — the *"smart data-forgetting"* the MemoryAgent brief calls for.
 
 ```mermaid
 flowchart LR
-    B["Failure batch<br/>(monitor window trips)"]:::state --> P0{"input integrity &lt; &tau; ?"}
+    B["Failure batch<br/>(monitor window trips)"]:::state --> P0{"input integrity < τ ?"}
     P0 -->|"yes · peel"| IN["input_noise<br/>skill spared · ledger untouched<br/>quarantine document"]:::spare
-    P0 -->|no| P1{"route confidence &lt; &tau; ?"}
+    P0 -->|no| P1{"route confidence < τ ?"}
     P1 -->|"yes · peel"| RE["routing_error<br/>skill spared · ledger untouched<br/>quarantine fingerprint"]:::spare
     P1 -->|no| P2{"failed only rules the audit<br/>finds firing on the clean pool?"}
-    P2 -->|"yes · peel"| RD["rule_defect<br/>skill spared · ledger untouched<br/>freeze &amp; repair rule"]:::spare
+    P2 -->|"yes · peel"| RD["rule_defect<br/>skill spared · ledger untouched<br/>freeze & repair rule"]:::spare
     P2 -->|no| RES["residual:<br/>high-confidence failures"]:::state
     RES --> O{"onset over the batch"}
     O -->|"no clear signature"| AM["ambiguous<br/>logged · no charge<br/>meta-review on repeat"]:::spare
@@ -128,10 +124,10 @@ failures — it never scores output quality.*
 
 **Headline — A2 vs A3 under 20 % routing noise** (`scenarios/routing_noise_demo.py`, key-free):
 
-| arm                       | healthy memories forgotten (= skills deprecated) | recall-served docs | tokens/doc |
-| ------------------------- | ------------------------------------------------ | ------------------ | ---------- |
-| A2 (no attribution)       | **4**                                            | 83 %               | 42.1       |
-| A3 (attribution)          | **0**                                            | 100 %              | 0.0        |
+| arm                 | healthy memories forgotten (= skills deprecated) | recall-served docs | tokens/doc |
+| ------------------- | ------------------------------------------------ | ------------------ | ---------- |
+| A2 (no attribution) | **4**                                      | 83 %               | 42.1       |
+| A3 (attribution)    | **0**                                      | 100 %              | 0.0        |
 
 Under the *same* injected noise, A2 wrongly **forgets** healthy memories — their traffic thrashes
 back to the LLM and must re-learn the skill, so cost rebounds — while A3 attributes the failures to
@@ -213,12 +209,12 @@ route hit on an active/trial skill → sandbox executes the code → validator c
 - **Ablations A0–A3** (`evals/ablation.py`): A0 baseline · A1 synthesis with **no** gate · A2 gate
   on · A3 = A2 + attribution (Phase 4). The A1-vs-A2 contrast is the headline result:
 
-  | config                   | tokens/doc | skill docs | silent failures                          | skills                                  |
-  | ------------------------ | ---------- | ---------- | ---------------------------------------- | --------------------------------------- |
-  | A0 (no skills)           | 243.4      | 0          | 0                                        | —                                       |
-  | A3 (gate + attribution)  | **173.3**  | 102        | 0                                        | 7 active · 3 trial                      |
-  | A1 (no gate, overfit)    | 145.1      | 142        | **63** — validation passes, fields wrong | 14 active                               |
-  | A2 (same overfit stream) | 176.1      | 98         | **0**                                    | overfit rejected → good skills admitted |
+  | config                   | tokens/doc      | skill docs | silent failures                                 | skills                                   |
+  | ------------------------ | --------------- | ---------- | ----------------------------------------------- | ---------------------------------------- |
+  | A0 (no skills)           | 243.4           | 0          | 0                                               | —                                       |
+  | A3 (gate + attribution)  | **173.3** | 102        | 0                                               | 7 active · 3 trial                      |
+  | A1 (no gate, overfit)    | 145.1           | 142        | **63** — validation passes, fields wrong | 14 active                                |
+  | A2 (same overfit stream) | 176.1           | 98         | **0**                                     | overfit rejected → good skills admitted |
 
   Cost-per-doc drops as skills come online; **without the held-out gate an overfit skill is
   admitted and emits silent, confident, deterministic wrong fields — the gate catches the exact
@@ -228,6 +224,67 @@ route hit on an active/trial skill → sandbox executes the code → validator c
   simulated/key-free; `--live` runs carry the real figures.
 
 </details>
+
+### Live runs — real Qwen, and what they changed
+
+Everything above is key-free simulated. The live arms below run real `qwen-turbo` / `qwen-plus`
+(extraction) and `qwen-coder-plus` (synthesis) over 420 documents each; artifacts, including the
+**verbatim parser code the synthesiser wrote**, are in [`evals/live_results/`](evals/live_results/).
+They are reported in full, including a negative result and a mechanism that was built, measured,
+and then deleted — that sequence is the most useful thing here.
+
+|                              | weak        | weak + cross-verify | **strong**    | weak + rule 6 |
+| ---------------------------- | ----------- | ------------------- | ------------------- | ------------- |
+| extraction model             | qwen-turbo  | qwen-turbo          | **qwen-plus** | qwen-turbo    |
+| mean field F1                | 0.919       | 0.921               | **1.000**     | 0.921         |
+| validation pass rate         | 0.507       | 0.505               | **1.000**     | 0.498         |
+| skill-served docs            | 115         | 76                  | **198**       | 97            |
+| **pool contamination** | **7** | —                  | —                  | **0**   |
+| active skills                | 6           | 4                   | **10**        | 5             |
+| total tokens                 | 260,669     | 292,289             | 312,788             | 234,674       |
+
+**The extraction model, not the pipeline, drove the failures.** Same prompt, same rules, same
+synthesiser: pass rate 0.51 → **1.00** purely by moving extraction to `qwen-plus`, for 20% more
+tokens. `qwen-turbo`'s dominant error is layout-conditioned — a `Tax 8.25% 365.11` line makes it
+return the *rate* where the schema declares a money *amount*.
+
+**Where the validator has a cross-field check, it holds.** Under the weak extractor
+`money_unparseable` fired 180 times and `date_unparseable` 27, keeping every one of those samples
+out of the pool, so no skill was ever synthesised from them. Skill-served documents recorded
+**zero** validation failures in every arm.
+
+**Where it has none, errors reach the pool — and the fix is a rule, not a second model.** Measuring
+which fields actually contaminated the verified pool gave exactly one: `vendor_name`, 7 of 98
+entries, all the same failure — a two-column header renders invoice number and vendor on one line
+and the extractor returned the whole line (`"NAK-2024-22337 Nakatomi Trading Co"`). Well-formed,
+non-empty, wrong, and invisible to every form-level rule.
+
+We first built the obvious fix — an independent second extractor gating pool entry — and it lost
+on every axis: ~20-29% detection (the second model shares the layout confusion, so **correlated
+errors defeat cross-model agreement**), +12% tokens, and it *slowed skill formation* because
+rejecting samples shrinks pools. A three-line deterministic cross-field rule (fields must not
+swallow one another) caught **2/2** live, **7/7** on replay of the prior run's actual outputs, and
+**0/420** false positives on perfect extractions — at zero API cost. The cross-model module was
+deleted rather than kept as unused surface.
+
+> The general lesson: when a field has no constraint, write one — don't buy a second opinion.
+> Every systematic error observed here was already caught by something cheaper.
+
+**Attribution issued zero verdicts in every arm, and that is correct.** It classifies *failure
+batches* raised by the monitor, and the monitor watches validation outcomes. Skill-served documents
+had zero validation failures, so no batch formed. Silent failures pass validation by definition and
+are therefore structurally invisible to the monitor — they are the admission gate's problem, not
+the accountant's. The two defences cover different failure classes and neither substitutes for the
+other.
+
+**Cost.** Tokens are the unit: Qwen Cloud bills by credit subscription with no published per-token
+rate table, so `costs:` is empty and every `cost_usd: 0.0` in the artifacts is a null artifact, not
+a measurement. Synthesis is the larger consumer and was previously invisible — 135,367 input tokens
+on synthesis against 83,203 on extraction. Skill-served documents consume **zero** marginal
+inference tokens; that is what the synthesis cost amortises against.
+
+<details>
+<summary>The first live run (210 docs) and the silent-failure mechanism it exposed</summary>
 
 ### Live run — real Qwen, and the limit it exposed
 
@@ -289,6 +346,8 @@ the synthesized skill code is gone, and traces store per-field booleans rather t
 values. The diagnosis above rests on per-format pool/skill correlation plus one confirming API
 call, not on replaying the artifacts.
 
+</details>
+
 ### Real data — CORD-v2 receipts (`evals/real_data.py`)
 
 The synthetic ablations prove the *mechanism*; a real dataset tests **external validity**.
@@ -300,11 +359,11 @@ company/date/address/total would reduce the verifier to presence checks.)
 
 **What 100 real test receipts showed — this section claims safety, not recurrence:**
 
-| observation | value | reading |
-| --- | --- | --- |
-| skill hit rate | **0 / 100**, all `miss` | The fingerprint is a born-digital construct; real scans carry OCR jitter and crop/skew, so nothing exact-matches. The router **fails closed** and traffic falls back to the LLM at bounded cost — the safe outcome, and the expected one. |
-| validation pass rate | 0.22 | **A verifier-transfer finding, not a system metric — never quote it bare.** Decomposition below. |
-| input integrity | median 1.000, p05 0.957, min 0.889 | 3/100 real docs fall under the 0.95 threshold, which was calibrated on synthetic damage only. None were skill-served, so no peel fired; the real-text false-positive rate is **unmeasured**. |
+| observation          | value                              | reading                                                                                                                                                                                                                                         |
+| -------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| skill hit rate       | **0 / 100**, all `miss`    | The fingerprint is a born-digital construct; real scans carry OCR jitter and crop/skew, so nothing exact-matches. The router**fails closed** and traffic falls back to the LLM at bounded cost — the safe outcome, and the expected one. |
+| validation pass rate | 0.22                               | **A verifier-transfer finding, not a system metric — never quote it bare.** Decomposition below.                                                                                                                                         |
+| input integrity      | median 1.000, p05 0.957, min 0.889 | 3/100 real docs fall under the 0.95 threshold, which was calibrated on synthetic damage only. None were skill-served, so no peel fired; the real-text false-positive rate is**unmeasured**.                                               |
 
 The 0.22 decomposes, with extraction exact on all 100, into: `missing_field:tax` 57 ·
 `missing_field:subtotal` 35 · `missing_field:total` 5 · `money_unparseable` 59 (knock-on) ·
