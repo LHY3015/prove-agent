@@ -68,7 +68,7 @@ def _for_print(svg: str) -> str:
         parts.append(
             f'<g class="node {cls}" transform="translate({x},512)">'
             f'<rect width="26" height="17" rx="5"/></g>'
-            f'<text class="elabel legend" x="{x + 34}" y="525">{label}</text>'
+            f'<text class="elabel board-legend" x="{x + 34}" y="525">{label}</text>'
         )
         x += 230
     return svg.replace("</svg>", "".join(parts) + "</svg>")
@@ -134,8 +134,8 @@ def _stage(svg: str, shown: int) -> str:
         svg = svg.replace('<path class="edge', f'<path style="opacity:{keep:.2f}" class="edge')
         # only edge labels ramp; the legend is chrome, not part of the flow
         # every elabel variant (`elabel hot`, `elabel miss`, …) ramps with its edge; the legend
-        # carries `elabel legend` and is excluded, since it is chrome rather than part of the flow
-        svg = re.sub(r'<text class="(elabel(?![^"]*legend)[^"]*)"',
+        # carries `elabel board-legend` and is excluded, since it is chrome rather than part of the flow
+        svg = re.sub(r'<text class="(elabel(?![^"]*board-legend)[^"]*)"',
                      lambda m: f'<text style="opacity:{keep:.2f}" class="{m.group(1)}"', svg)
     return svg
 
