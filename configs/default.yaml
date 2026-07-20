@@ -1,17 +1,23 @@
 # LLM transport. Tests force provider=fake (no API key, no network).
 # Real-LLM runs (evals --live) use openai_compat against Qwen / Model Studio international.
 llm:
-  provider: openai_compat            # openai_compat | anthropic (later) | fake (tests force this)
+  provider: openai_compat            # openai_compat | fake (tests force this)
   base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
   # workspace-scoped form: https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
   # API key via env DASHSCOPE_API_KEY (region-scoped)
 
-# Per-role model tiering (single source of truth). Placeholder Qwen IDs —
-# confirm exact IDs against the Model Studio international catalog before any --live run.
+# Per-role model tiering (single source of truth). IDs verified against the Model Studio
+# international catalog.
 model:
-  extraction: qwen-turbo             # cheap/light
-  synthesis: qwen-coder-plus         # coder-class
-  attribution: qwen-max              # flagship
+  # qwen-plus, not the cheaper qwen-turbo: measured over 420 documents, turbo returns the tax
+  # *rate* off a "Tax 8.25% 365.11" line where the schema declares a money amount, which costs
+  # half the validation pass rate (0.507 vs 1.000) to save ~20% tokens. Override per run with
+  # `--extraction-model`.
+  extraction: qwen-plus
+  synthesis: qwen-coder-plus         # coder-class; writes the skill source
+  # reserved: attribution is fully deterministic today and issues no LLM call. This entry is the
+  # model the ambiguous-batch escalation would use if it is ever built.
+  attribution: qwen-max
 
 synthesis_trigger: 10
 

@@ -5,9 +5,17 @@ All arms use the same 14-format synthetic corpus and the same synthesiser
 (`qwen-coder-plus`); only the extraction model and the verification setup differ.
 
 ```bash
-DASHSCOPE_API_KEY=... python -m evals.ablation --config A3 --live \
-    --samples-per-format 30 --seed 0 --tag <arm> [--extraction-model qwen-plus]
+export DASHSCOPE_API_KEY=...
+BASE="python -m evals.ablation --config A3 --live --samples-per-format 30 --seed 0"
+
+$BASE --tag weak       --extraction-model qwen-turbo   # arm 1
+$BASE --tag strong     --extraction-model qwen-plus    # arm 3 (qwen-plus is now the config default)
+$BASE --tag weak_rule6 --extraction-model qwen-turbo   # arm 4, after the field-overlap rule landed
 ```
+
+`--extraction-model` is stated explicitly for every arm: `configs/default.yaml` now defaults to
+`qwen-plus`, so omitting the flag on the `weak` arms would silently reproduce them against the
+wrong model.
 
 Endpoint: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Dated 2026-07-20.
 
