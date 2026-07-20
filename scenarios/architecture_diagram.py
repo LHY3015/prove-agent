@@ -65,8 +65,8 @@ def build_figure():
     ax.set_ylim(0, 10)
     ax.axis("off")
     ax.text(8, 9.55,
-             "PROVE — a procedural-memory agent: it compiles experience into cheap verified code,\n"
-             "recalls it instead of re-reasoning, and forgets only what deterministic outcomes reject",
+             "PROVE — a procedural-memory agent: it compiles experience into executable skills,\n"
+             "recalls them instead of re-reasoning, and forgets only what deterministic outcomes reject",
              ha="center", va="center", fontsize=12, fontweight="bold", color=DARK)
     ax.text(8, 8.75,
              "procedural memory:   Router = recall     Pool = accumulate     "

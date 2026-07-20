@@ -1,0 +1,153 @@
+{
+ "live": true,
+ "lines": [
+  {
+   "t": 0.437,
+   "line": ""
+  },
+  {
+   "t": 0.437,
+   "line": "\u001b[1mPROVE \u2014 one format, cold start to zero-token recall\u001b[0m"
+  },
+  {
+   "t": 0.437,
+   "line": "\u001b[2mformat F1_acme \u00b7 16 documents \u00b7 synthesis trigger at 10 verified samples\u001b[0m"
+  },
+  {
+   "t": 0.437,
+   "line": ""
+  },
+  {
+   "t": 4.86,
+   "line": "\u001b[2mextraction=qwen-plus  synthesis=qwen-coder-plus  (Alibaba Cloud Model Studio)\u001b[0m"
+  },
+  {
+   "t": 4.86,
+   "line": ""
+  },
+  {
+   "t": 4.895,
+   "line": "   doc  route   served by  tokens  field F1  pool"
+  },
+  {
+   "t": 4.896,
+   "line": "  ----  ------- --------- -------  --------  ------"
+  },
+  {
+   "t": 7.473,
+   "line": "     1  miss    llm           396      1.00   1/10"
+  },
+  {
+   "t": 9.799,
+   "line": "     2  miss    llm           377      1.00   2/10"
+  },
+  {
+   "t": 11.998,
+   "line": "     3  miss    llm           416      1.00   3/10"
+  },
+  {
+   "t": 14.774,
+   "line": "     4  miss    llm           338      1.00   4/10"
+  },
+  {
+   "t": 16.961,
+   "line": "     5  miss    llm           375      1.00   5/10"
+  },
+  {
+   "t": 19.309,
+   "line": "     6  miss    llm           399      1.00   6/10"
+  },
+  {
+   "t": 21.52,
+   "line": "     7  miss    llm           397      1.00   7/10"
+  },
+  {
+   "t": 23.825,
+   "line": "     8  miss    llm           358      1.00   8/10"
+  },
+  {
+   "t": 25.966,
+   "line": "     9  miss    llm           418      1.00   9/10"
+  },
+  {
+   "t": 53.35,
+   "line": "    10  miss    llm           354      1.00  10/10"
+  },
+  {
+   "t": 53.35,
+   "line": "        \u001b[36m\u21b3 synthesised 6b97888f1dcabb9c-v1 from the verified pool (qwen-coder-plus)\u001b[0m"
+  },
+  {
+   "t": 81.799,
+   "line": "    11  miss    llm           331      1.00  11/10"
+  },
+  {
+   "t": 81.799,
+   "line": "        \u001b[36m\u21b3 synthesised 6b97888f1dcabb9c-v2 from the verified pool (qwen-coder-plus)\u001b[0m"
+  },
+  {
+   "t": 92.923,
+   "line": "    12  miss    llm           412      1.00  12/10"
+  },
+  {
+   "t": 92.923,
+   "line": "        \u001b[36m\u21b3 synthesised 6b97888f1dcabb9c-v3 from the verified pool (qwen-coder-plus)\u001b[0m"
+  },
+  {
+   "t": 92.923,
+   "line": "        \u001b[36m\u21b3 admission on held-out split: F1 1.00 over 3 documents \u2192 admitted\u001b[0m"
+  },
+  {
+   "t": 92.988,
+   "line": "  \u001b[32m  13  exact   skill           0      1.00  12/10\u001b[0m"
+  },
+  {
+   "t": 93.062,
+   "line": "  \u001b[32m  14  exact   skill           0      1.00  12/10\u001b[0m"
+  },
+  {
+   "t": 93.131,
+   "line": "  \u001b[32m  15  exact   skill           0      1.00  12/10\u001b[0m"
+  },
+  {
+   "t": 93.189,
+   "line": "  \u001b[32m  16  exact   skill           0      1.00  12/10\u001b[0m"
+  },
+  {
+   "t": 93.19,
+   "line": ""
+  },
+  {
+   "t": 93.19,
+   "line": "  \u001b[1m4 of 16 documents were served from memory at 0 inference tokens\u001b[0m"
+  },
+  {
+   "t": 93.19,
+   "line": "  \u001b[2mthe same documents through the LLM averaged 381 tokens each; synthesis cost 29781 tokens once\u001b[0m"
+  },
+  {
+   "t": 93.19,
+   "line": ""
+  },
+  {
+   "t": 93.19,
+   "line": "  \u001b[1mThe memory itself \u2014 written by the model during this run:\u001b[0m"
+  },
+  {
+   "t": 93.19,
+   "line": "  /home/lhy/workspaces/prove-agent/evals/out/live_demo/registry/skills/6b97888f1dcabb9c-v3.py"
+  },
+  {
+   "t": 93.19,
+   "line": ""
+  },
+  {
+   "t": 93.19,
+   "line": "  \u001b[2melapsed 93s\u001b[0m"
+  },
+  {
+   "t": 93.19,
+   "line": ""
+  }
+ ]
+}

@@ -19,18 +19,18 @@ Cold start → a skill is learned → cost collapses → drift → smart forgett
 minute. Source: [`docs/prove_explainer.html`](docs/prove_explainer.html) — it also opens straight
 from disk, no server needed.
 
-![PROVE architecture — the loop](docs/architecture.png)
+![PROVE — the loop, one document's path through it](docs/pipeline_board.png)
 
 ---
 
 ## Qwen Cloud submission — Track 1, MemoryAgent
 
-| Requirement                     | Where                                                                                                                                                                                                                                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Requirement                     | Where                                                                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Alibaba Cloud services and APIs | [`src/prove/llm_client.py`](src/prove/llm_client.py) — Qwen via Model Studio (DashScope); endpoint and models in [`configs/default.yaml`](configs/default.yaml) |
-| Architecture diagram            | [`docs/architecture.png`](docs/architecture.png)                                                                                                                                                                                                                                                      |
-| Live-run evidence               | [`evals/live_results/`](evals/live_results/) — four real-Qwen arms of 420 documents, plus the parser code the model wrote                                                                                                                                                                            |
-| Open source licence             | [MIT](LICENSE)                                                                                                                                                                                                                                                                                          |
+| Architecture diagram            | [`docs/pipeline_board.png`](docs/pipeline_board.png)                                                                                                                  |
+| Live-run evidence               | [`evals/live_results/`](evals/live_results/) — four real-Qwen arms of 420 documents, plus the parser code the model wrote                                        |
+| Open source licence             | [MIT](LICENSE)                                                                                                                                                      |
 
 ## Quickstart
 
