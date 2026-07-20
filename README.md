@@ -1,16 +1,30 @@
 # PROVE
 
-**PROVE** (Procedural Reuse via Outcome-Verified Executables) — Outcome-Verified Skill
-Lifecycle Governance for Multi-Agent LLM Pipelines.
+**PROVE** (Procedural Reuse via Outcome-Verified Executables) governs **procedural memory as
+executable skills** — written, recalled, and forgotten by deterministic downstream outcomes, with
+attribution deciding *which* memory to forget.
 
-> *Skills must prove themselves — before admission, and every day after.*
+> *Memory is experience that changes future behavior. PROVE governs **procedural memory,
+> materialized as executable skills**: experience is compiled into code, recalled instead of
+> re-reasoned, and kept or forgotten by downstream objective outcomes — never by an LLM's opinion.*
 
-A document field-extraction pipeline where agents compile their extraction experience
-into **executable skills (Python parser code)**. Skill admission, retention, and
-deprecation are driven entirely by **downstream objective outcomes** (regression tests,
-rule validation, production pass/fail) — never by LLM subjective scoring. An
-**attribution module** performs credit assignment on production failures across four
-root causes: skill defect / routing error / validation-rule defect / data drift.
+As the agent processes documents it **accumulates its experience into executable skills (Python
+parser code)** — its procedural memory. It **recalls** a skill by document format instead of
+re-invoking the LLM, and each skill's admission, retention, and **forgetting** are decided entirely
+by **downstream objective outcomes** (regression tests, rule validation, production pass/fail),
+never by LLM subjective scoring. An **attribution module** makes forgetting *smart*: it charges
+every production failure to the right account (skill defect / routing error / validation-rule
+defect / data drift / degraded input), so a healthy memory is not forgotten for a failure it did
+not cause (in the fault-injection evals below, A3 forgets **zero** healthy memories where A2
+forgets 4).
+
+![PROVE architecture — the loop](docs/architecture.png)
+
+> **The loop:** the agent compiles its experience into cheap verified code and writes itself out of
+> the hot path; every **write, recall, and forget** in this memory is decided by a deterministic
+> downstream check. An **animated walk-through** (cold start → a skill is learned → recall collapses
+> cost → drift → smart forgetting → relearn) lives in
+> [`docs/prove_explainer.html`](docs/prove_explainer.html).
 
 ## Hard design rules
 
@@ -20,6 +34,27 @@ root causes: skill defect / routing error / validation-rule defect / data drift.
 2. Skills are pure executors — no format-detection logic. Routing is a separate component.
 3. All synthesized code executes only inside the sandbox.
 4. Every execution writes a structured trace from day one.
+
+## Memory lifecycle (a skill's life)
+
+A procedural memory is **written** (synthesized), **validated** (admitted), **recalled**
+(served), and **forgotten** (deprecated). Every transition is caused by a **deterministic
+event** — never an LLM opinion:
+
+```mermaid
+stateDiagram-v2
+    [*] --> candidate: synthesis (pool ≥ trigger)
+    candidate --> trial: admission — held-out field-F1 ≥ τ
+    candidate --> candidate: admission fail (≤ max_rejections) → resynthesize
+    trial --> active: N clean production docs
+    trial --> deprecated: monitor fires before promotion
+    active --> deprecated: monitor — failure window over θ, or ledger under floor
+    deprecated --> [*]: pool reset → new resynthesis campaign
+    note right of deprecated
+      deprecated → active is guarded (no resurrection);
+      a healed format re-enters as a NEW-version candidate
+    end note
+```
 
 ## Layout
 
@@ -33,8 +68,102 @@ prove-agent/
 
 ## Status
 
-**Phase 3 complete — continuous monitoring + self-healing.** On top of the Phase-2 core
-loop, a live monitor watches every skill's validation outcomes and self-heals under drift:
+**Phase 5 complete — attribution *is* smart forgetting.** *Which* memory to forget is a mixed
+signal: a routing misdelivery, a corrupted validator rule, and a genuinely broken skill all look
+the same at the skill's door. Attribution decomposes a failure batch to its root cause **before**
+the confidence ledger forgets anything, so a healthy memory is never forgotten for a failure it did
+not cause — the *"smart data-forgetting"* the MemoryAgent brief calls for.
+
+```mermaid
+flowchart LR
+    B["Failure batch<br/>(monitor window trips)"]:::state --> P0{"input integrity &lt; &tau; ?"}
+    P0 -->|"yes · peel"| IN["input_noise<br/>skill spared · ledger untouched<br/>quarantine document"]:::spare
+    P0 -->|no| P1{"route confidence &lt; &tau; ?"}
+    P1 -->|"yes · peel"| RE["routing_error<br/>skill spared · ledger untouched<br/>quarantine fingerprint"]:::spare
+    P1 -->|no| P2{"failed only rules the audit<br/>finds firing on the clean pool?"}
+    P2 -->|"yes · peel"| RD["rule_defect<br/>skill spared · ledger untouched<br/>freeze &amp; repair rule"]:::spare
+    P2 -->|no| RES["residual:<br/>high-confidence failures"]:::state
+    RES --> O{"onset over the batch"}
+    O -->|"no clear signature"| AM["ambiguous<br/>logged · no charge<br/>meta-review on repeat"]:::spare
+    O -->|"clean prefix, then abrupt"| DD["data_drift"]:::charge
+    O -->|"present from the start"| SD["skill_defect"]:::charge
+    DD --> LED[("confidence ledger<br/>discounted Beta")]:::det
+    SD --> LED
+    LED --> DEP["deprecate → resynthesize → heal"]:::charge
+    classDef state fill:#e5e7eb,color:#111827,stroke:#9ca3af
+    classDef det fill:#2563eb,color:#ffffff,stroke:#1d4ed8
+    classDef spare fill:#16a34a,color:#ffffff,stroke:#15803d
+    classDef charge fill:#dc2626,color:#ffffff,stroke:#b91c1c
+```
+
+*Green bins spare the skill (a routing / rule / no-signature failure is not the skill's account);
+only the red bins reach the ledger and deprecate. The accountant assigns blame for already-established
+failures — it never scores output quality.*
+
+- **Attribution** (`attribution.py`): a deterministic classifier over the failure batch. It
+  *peels* per-doc — the degraded-input failures, the low-confidence (misrouted) failures and the
+  frozen-rule failures are exonerated to their own accounts, and only the residual high-confidence
+  failures can be charged to the skill. No LLM issues a verdict (Hard Design Rule 1); the LLM
+  escalation for genuinely ambiguous batches is the honest fallback's optional last step.
+- **`input_noise`, the fifth account**: a document whose *own extracted text* is degraded is
+  nobody's fault. `layout.input_integrity` measures it deterministically at ingestion (fraction of
+  character-class-clean tokens; born-digital extraction scores 1.0) and it is peeled **first** —
+  garbled header tokens also depress route confidence, so a doc eligible for two peels must be
+  charged to the root cause, not the symptom. Unique among the accounts in having no party to
+  charge and nothing to repair: the remedy is to quarantine the document. Without it a degraded doc
+  routes exactly, fails at high confidence, survives every other peel, and is charged to a healthy
+  skill as `skill_defect` — the precise miscarriage the module exists to prevent.
+- **Deferred charging** (`pipeline.py`): in A3 a skill *pass* charges the ledger immediately
+  (unambiguous), but a *failure* is only logged until the batch is attributed — β is charged **iff**
+  attribution finds the skill at fault. A2 charges every failure raw (no attribution). That one
+  branch is the whole A2-vs-A3 difference.
+- **Fault injectors** (`datagen/faults.py`) with logged ground truth: `NoisyRouter` (force a
+  fraction of correct traffic to another format's skill at *genuine* low Jaccard — never a
+  fabricated number), template drift (Phase 3), a `corrupt_validator` that spuriously rejects a
+  valid currency, and `LayoutGarbler` (junk glyphs over a band of the page body, modelling an
+  unreadable scan region — it leaves the header fingerprint intact, so the doc still routes
+  exactly and the failure is invisible to every peel but the integrity one). **Audit** (`audit.py`) re-validates the immutable verified pool; a rule that now
+  fires on samples that passed at admission is the corrupted rule (the pool didn't change — the rule
+  did) — that is attribution's rule-defect cross-check.
+
+**Headline — A2 vs A3 under 20 % routing noise** (`scenarios/routing_noise_demo.py`, key-free):
+
+| arm                       | healthy memories forgotten (= skills deprecated) | recall-served docs | tokens/doc |
+| ------------------------- | ------------------------------------------------ | ------------------ | ---------- |
+| A2 (no attribution)       | **4**                                            | 83 %               | 42.1       |
+| A3 (attribution)          | **0**                                            | 100 %              | 0.0        |
+
+Under the *same* injected noise, A2 wrongly **forgets** healthy memories — their traffic thrashes
+back to the LLM and must re-learn the skill, so cost rebounds — while A3 attributes the failures to
+the router and keeps every memory alive. This is the "smart data-forgetting" claim, quantified.
+
+![A2 vs A3 under routing noise](docs/routing_noise_comparison.png)
+
+**Attribution fault-injection coverage** (`evals/attribution_matrix.py`): injected-vs-attributed,
+**full diagonal** across routing_error / data_drift / rule_defect (n=14). This is a *coverage*
+result, not a statistical accuracy claim — the classifier is deterministic and the runs are
+single-fault, so a full diagonal reads as "every planted root cause leaves a separable signature the
+peel recovers, with zero cross-cause confusion." Mixed-cause resolution (the peel exonerating
+misroutes while charging a concurrent drift) is shown at unit level. `skill_defect` is the residual
+hypothesis (what's left after routing/rule/drift are peeled) and has no clean production injector.
+
+![attribution fault-injection coverage](docs/attribution_confusion.png)
+
+**Evidence card** — every `POST /extract` response (`service.py`) carries routing evidence,
+executor identity + confidence, the per-rule validation verdict, and cost, all lifted from the
+Trace. Auditability is a first-class output, not a bolt-on log.
+
+**Designed limitations (honest scope).** *routing_error*'s remedy is to spare the skill's ledger and
+log a quarantine event — the misrouted document still fails validation loudly (never silent garbage);
+enacting the re-route is a router-subsystem change, and repeated quarantine verdicts are the signal a
+real router-repair hook would consume. Under *heavy* noise (contrast lost — no clean high-confidence
+baseline in the window) the peel cannot prove the skill works, so it conservatively charges the skill
+and A3 degrades toward A2 behaviour by design. `_frozen_rules` is global across formats (matches the
+validator-wide fault model) and monotone (rule *repair* is out of scope).
+
+<details><summary>Phase 3 — continuous monitoring + self-healing</summary>
+
+A live monitor watches every skill's validation outcomes and self-heals under drift:
 
 ```
 skill serving a format → template drift → skill's validation failures accumulate
@@ -59,7 +188,8 @@ skill serving a format → template drift → skill's validation failures accumu
   ```
 
   ![self-healing timeline](docs/drift_demo_timeline.png)
-  <br>*(regenerate with `python scenarios/drift_demo.py` → `evals/out/drift_demo_timeline.png`)*
+
+</details>
 
 <details><summary>Phase 2 — skill synthesis + admission gate (the core loop)</summary>
 
@@ -83,21 +213,57 @@ route hit on an active/trial skill → sandbox executes the code → validator c
 - **Ablations A0–A3** (`evals/ablation.py`): A0 baseline · A1 synthesis with **no** gate · A2 gate
   on · A3 = A2 + attribution (Phase 4). The A1-vs-A2 contrast is the headline result:
 
-  | config | tokens/doc | skill docs | silent failures | skills |
-  |---|---|---|---|---|
-  | A0 (no skills) | 242 | 0 | 0 | — |
-  | A2 (gate on) | **97** | 120 | 0 | 8 active |
-  | A1 (no gate, overfit) | 97 | 120 | **15** — validation passes, fields wrong | 8 active |
-  | A2 (same overfit stream) | 98 | 119 | **0** | overfit rejected → good skill admitted |
+  | config                   | tokens/doc | skill docs | silent failures                          | skills                                  |
+  | ------------------------ | ---------- | ---------- | ---------------------------------------- | --------------------------------------- |
+  | A0 (no skills)           | 243.4      | 0          | 0                                        | —                                       |
+  | A3 (gate + attribution)  | **173.3**  | 102        | 0                                        | 7 active · 3 trial                      |
+  | A1 (no gate, overfit)    | 145.1      | 142        | **63** — validation passes, fields wrong | 14 active                               |
+  | A2 (same overfit stream) | 176.1      | 98         | **0**                                    | overfit rejected → good skills admitted |
 
   Cost-per-doc drops as skills come online; **without the held-out gate an overfit skill is
   admitted and emits silent, confident, deterministic wrong fields — the gate catches the exact
-  same candidate.** (Numbers above are simulated/key-free; `--live` runs carry the real figures.)
+  same candidate.** A1 looks *cheaper* precisely because it serves more traffic from skills that
+  should never have been admitted. 14 formats / 350 docs; reproduce every figure in this table with
+  `python -m evals.ablation_curves` (it re-runs all four arms and writes `evals/out/`). Numbers are
+  simulated/key-free; `--live` runs carry the real figures.
 
 </details>
 
-60 tests pass with no API key. Phase 4 (attribution + fault-injection evals + full ablations)
-is next. See `local/IMPLEMENTATION_PLAN.md` for the roadmap.
+### Real data — CORD-v2 receipts (`evals/real_data.py`)
+
+The synthetic ablations prove the *mechanism*; a real dataset tests **external validity**.
+[`datasets/cord.py`](src/prove/datasets/cord.py) converts CORD-v2's own OCR word boxes and field
+labels into the `text_layout` skill ABI, so **every downstream component runs on real receipts
+unmodified** — no OCR engine, no special-casing. (CORD over SROIE because CORD labels
+subtotal/tax/total, so the validator's only *cross-field* rule survives; SROIE's
+company/date/address/total would reduce the verifier to presence checks.)
+
+**What 100 real test receipts showed — this section claims safety, not recurrence:**
+
+| observation | value | reading |
+| --- | --- | --- |
+| skill hit rate | **0 / 100**, all `miss` | The fingerprint is a born-digital construct; real scans carry OCR jitter and crop/skew, so nothing exact-matches. The router **fails closed** and traffic falls back to the LLM at bounded cost — the safe outcome, and the expected one. |
+| validation pass rate | 0.22 | **A verifier-transfer finding, not a system metric — never quote it bare.** Decomposition below. |
+| input integrity | median 1.000, p05 0.957, min 0.889 | 3/100 real docs fall under the 0.95 threshold, which was calibrated on synthetic damage only. None were skill-served, so no peel fired; the real-text false-positive rate is **unmeasured**. |
+
+The 0.22 decomposes, with extraction exact on all 100, into: `missing_field:tax` 57 ·
+`missing_field:subtotal` 35 · `missing_field:total` 5 · `money_unparseable` 59 (knock-on) ·
+`money_arithmetic` 15 · passed 22. The first group is a **known, deliberately deferred profile
+mis-specification** — `CORD_PROFILE` requires four fields, but real receipts mostly carry no
+subtotal/tax line. The 15 arithmetic failures are the substantive result: CORD labels a
+`sub_total.discount_price` category, and real receipts carry discounts, service charges and
+rounding, so they are consistent under the *full* accounting identity while failing the rule's
+narrower `subtotal + tax == total`. **The strongest synthetic rule does not transfer unmodified to
+real receipts.**
+
+Recurrence on real scans needs a fuzzy router with normalized coordinates — deliberately *not*
+attempted, because coarser buckets force a lower exact-match threshold, which would drop all
+real-data routing below the attribution confidence threshold and break blame assignment in a new
+way. Offline, the loop also cannot reach synthesis (the key-free synthesizer has no skill for a
+real format), so building a skill from CORD requires `--live`.
+
+109 tests pass with no API key. See `local/IMPLEMENTATION_PLAN.md` for the roadmap; the remaining
+upside (pool-poisoning meta-review, the ambiguous→LLM escalation path) is tracked in `local/log.md`.
 
 ## Development
 
@@ -108,12 +274,24 @@ uv run ruff check .     # lint
 
 # ablations (simulated LLM, no API key):
 python -m evals.ablation --config A0                          # baseline (pure LLM)
-python -m evals.ablation --config A2                          # synthesis + admission gate
-python -m evals.ablation --config A1 --overfit-first-k 1      # no gate → silent failures
 python -m evals.ablation --config A2 --overfit-first-k 1      # gate rejects the overfit skill
 python -m evals.ablation --config A0 --live                  # real Qwen run (spends tokens)
 
-python scenarios/drift_demo.py                               # self-healing timeline → evals/out/
+# Phase 3-4 scenarios + eval figures → evals/out/:
+python scenarios/drift_demo.py            # self-healing timeline under template drift
+python scenarios/routing_noise_demo.py    # A2-vs-A3 healthy-skill kills under routing noise
+python scenarios/compound_demo.py         # peel separates routing noise from drift in one stream
+python -m evals.attribution_matrix        # injected-vs-attributed coverage matrix
+python -m evals.ablation_curves           # A0-A3 learning + cost curves, A1-vs-A2 silent failure
+python scenarios/architecture_diagram.py  # regenerate the architecture figure
+
+# real data (CORD-v2 receipts) — the external-validity probe:
+python -m evals.real_data --source tests/fixtures/cord_schema_replica.jsonl   # offline fixture
+python -m evals.real_data --source hf --limit 200         # downloads CORD-v2 (needs `datasets`)
+python -m evals.real_data --source cord.jsonl --live      # the only mode that can BUILD a skill
+
+# the auditable API surface:
+uvicorn prove.service:app                 # POST /extract (+ evidence card), GET /skills, /traces
 ```
 
 Real-LLM runs go only through `evals/` scripts behind an explicit `--live` flag.

@@ -1,0 +1,404 @@
+<title>PROVE — the loop</title>
+<style>
+  :root {
+    --amber:#f5a524; --blue:#3b82f6; --green:#22c55e; --red:#ef4444; --state:#94a3b8;
+    --bg:#0d1522; --panel:#141f33; --panel-2:#0f1826; --ink:#e8eef7; --muted:#8b9bb4;
+    --hair:rgba(255,255,255,.09); --edge:#42506a; --shadow:rgba(0,0,0,.45);
+    --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:light){
+    :root{ --bg:#eef2f8; --panel:#ffffff; --panel-2:#f4f7fc; --ink:#0f1a2c; --muted:#5a6a86;
+      --hair:rgba(15,26,44,.10); --edge:#b7c1d4; --shadow:rgba(15,26,44,.12); }
+  }
+  :root[data-theme="dark"]{ --bg:#0d1522; --panel:#141f33; --panel-2:#0f1826; --ink:#e8eef7;
+    --muted:#8b9bb4; --hair:rgba(255,255,255,.09); --edge:#42506a; --shadow:rgba(0,0,0,.45); }
+  :root[data-theme="light"]{ --bg:#eef2f8; --panel:#ffffff; --panel-2:#f4f7fc; --ink:#0f1a2c;
+    --muted:#5a6a86; --hair:rgba(15,26,44,.10); --edge:#b7c1d4; --shadow:rgba(15,26,44,.12); }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;line-height:1.5}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 20px 48px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--blue);margin:0 0 6px}
+  h1{font-size:clamp(24px,3.4vw,36px);line-height:1.12;margin:0 0 8px;text-wrap:balance;
+    font-weight:700;letter-spacing:-.01em}
+  .lede{color:var(--muted);max-width:64ch;margin:0 0 22px;font-size:15px}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .stage{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--hair);
+    border-radius:16px;padding:14px 14px 6px;box-shadow:0 18px 40px -24px var(--shadow)}
+  .board{width:100%;height:auto;display:block}
+
+  /* diagram */
+  .node rect{rx:9px}
+  .n-llm rect{fill:color-mix(in srgb,var(--amber) 20%,var(--panel));stroke:var(--amber)}
+  .n-det rect{fill:color-mix(in srgb,var(--blue) 18%,var(--panel));stroke:var(--blue)}
+  .n-state rect{fill:color-mix(in srgb,var(--state) 16%,var(--panel));stroke:var(--state);
+    stroke-dasharray:2 3}
+  .n-data rect{fill:var(--panel);stroke:var(--edge)}
+  .node rect{stroke-width:1.4}
+  .node .t{fill:var(--ink);font-family:var(--sans);font-weight:600;font-size:13px}
+  .node .s{fill:var(--muted);font-family:var(--mono);font-size:10.5px;letter-spacing:.02em}
+  .node.dim{opacity:.32;transition:opacity .5s}
+  .node.live rect{stroke-width:2.4;filter:drop-shadow(0 0 6px color-mix(in srgb,var(--blue) 60%,transparent))}
+  .node.dead rect{stroke:var(--red);fill:color-mix(in srgb,var(--red) 16%,var(--panel))}
+  .node.dead .t{fill:var(--red)}
+
+  .edge{fill:none;stroke:var(--edge);stroke-width:1.6}
+  .edge.hot{stroke-width:2.6}
+  .edge.miss{stroke:var(--amber);stroke-dasharray:none;opacity:.75}
+  .edge.pass{stroke:var(--green);opacity:.7}
+  .edge.heal{stroke:var(--blue);stroke-dasharray:5 5;opacity:.6}
+  /* no opacity here: the kill edges are shown/hidden via the opacity ATTRIBUTE (a CSS opacity
+     would override the attribute and pin them permanently visible). */
+  .edge.kill{stroke:var(--red);stroke-dasharray:4 4}
+  .elabel{fill:var(--muted);font-family:var(--mono);font-size:10px;letter-spacing:.04em}
+  .elabel.hot{fill:var(--green)} .elabel.miss{fill:var(--amber)} .elabel.kill{fill:var(--red)}
+
+  .dot{r:5}
+  .banner{fill:var(--muted);font-family:var(--mono);font-size:11px}
+
+  /* metrics + controls */
+  .hud{display:grid;grid-template-columns:1.1fr 1.1fr 2fr;gap:12px;margin-top:14px}
+  .card{background:var(--panel);border:1px solid var(--hair);border-radius:12px;padding:12px 14px}
+  .card .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted)}
+  .card .v{font-family:var(--mono);font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;
+    margin-top:3px}
+  .v.amber{color:var(--amber)} .v.blue{color:var(--blue)}
+  .spark{width:100%;height:52px;display:block;margin-top:2px}
+
+  .controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px}
+  .steps{display:flex;gap:8px;flex-wrap:wrap;flex:1;min-width:260px}
+  .step{appearance:none;border:1px solid var(--hair);background:var(--panel);color:var(--muted);
+    font-family:var(--mono);font-size:12px;letter-spacing:.03em;padding:8px 12px;border-radius:9px;
+    cursor:pointer;transition:.2s}
+  .step:hover{color:var(--ink);border-color:var(--edge)}
+  .step[aria-current="true"]{color:var(--ink);border-color:var(--blue);
+    box-shadow:inset 0 -2px 0 var(--blue)}
+  .step .num{color:var(--blue);margin-right:7px}
+  .play{appearance:none;border:1px solid var(--blue);background:color-mix(in srgb,var(--blue) 16%,var(--panel));
+    color:var(--ink);font-family:var(--mono);font-size:12px;padding:8px 16px;border-radius:9px;cursor:pointer}
+  .play:hover{background:color-mix(in srgb,var(--blue) 26%,var(--panel))}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+  .caption{margin-top:16px;background:var(--panel);border:1px solid var(--hair);border-left:3px solid var(--blue);
+    border-radius:10px;padding:14px 16px;min-height:74px}
+  .caption .c-eye{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--blue)}
+  .caption .c-body{margin-top:5px;font-size:15px}
+  .caption .c-body b{color:var(--ink)}
+
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:16px;color:var(--muted);
+    font-family:var(--mono);font-size:11.5px}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .foot{margin-top:22px;color:var(--muted);font-size:13px;font-family:var(--mono)}
+  .foot b{color:var(--ink);font-weight:600}
+  @media (max-width:720px){ .hud{grid-template-columns:1fr 1fr} .hud .card:last-child{grid-column:1/-1} }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">PROVE · outcome-verified procedural memory</p>
+  <h1>The agent compiles its experience into cheap verified code — and recalls it instead of re-reasoning.</h1>
+  <p class="lede">Watch the agent's <b>procedural memory</b> form, recall, and self-heal as one
+    document stream flows through it. Every <b>write, recall, and forget</b> is decided by a
+    deterministic downstream check — never by an LLM's opinion.</p>
+
+  <div class="stage">
+    <svg class="board" viewBox="0 0 1120 560" role="img"
+         aria-label="Animated PROVE dataflow: documents route to a skill or the LLM, are validated, verified samples compile into a new skill, and the loop self-heals under drift.">
+      <!-- guide paths (invisible) for dot travel -->
+      <defs>
+        <path id="p_skill" d="M120,120 H960"/>
+        <path id="p_llm"   d="M120,120 H250 V250 H700 V120"/>
+        <path id="p_llm2"  d="M700,120 H960"/>
+        <path id="p_birth" d="M700,300 H500 V430 H960"/>
+        <path id="p_golive" d="M960,430 V190 H500 V146"/>
+      </defs>
+
+      <!-- edges (visible) -->
+      <path class="edge" d="M120,120 H250"/>
+      <path class="edge hot" id="e_hit" d="M250,120 H425"/>
+      <path class="edge miss" d="M250,120 V250 H425"/>
+      <path class="edge hot" d="M575,120 H700"/>
+      <path class="edge miss" d="M575,250 H700 V120"/>
+      <path class="edge" d="M800,120 H900"/>
+      <path class="edge pass" d="M740,148 V300"/>
+      <path class="edge" d="M675,300 H500 V396"/>
+      <path class="edge" d="M575,430 H675"/>
+      <path class="edge pass" d="M805,430 H900"/>
+      <path class="edge heal" d="M960,406 V190 H500 V148"/>
+      <path class="edge" d="M960,148 V270" stroke-dasharray="2 3"/>
+      <path class="edge kill" id="e_kill" d="M960,330 V406" opacity="0"/>
+      <path class="edge kill" id="e_fallback" d="M895,300 H360 V250 H425" opacity="0"/>
+
+      <!-- edge labels -->
+      <text class="elabel hot" x="335" y="112" text-anchor="middle">HIT</text>
+      <text class="elabel miss" x="330" y="243" text-anchor="middle">MISS</text>
+      <text class="elabel hot" x="752" y="230" text-anchor="middle">pass → pool</text>
+      <text class="elabel" x="620" y="322" text-anchor="middle">pool ≥ trigger</text>
+      <text class="elabel hot" x="852" y="422" text-anchor="middle">admit</text>
+      <text class="elabel" x="700" y="185" text-anchor="middle">skill goes live</text>
+      <text class="elabel" x="975" y="215" text-anchor="start">traces</text>
+      <text class="elabel kill" id="l_kill" x="975" y="372" text-anchor="start" opacity="0">deprecate</text>
+
+      <!-- nodes -->
+      <g class="node n-data"  transform="translate(70,98)"><rect width="100" height="44"/>
+        <text class="t" x="50" y="26" text-anchor="middle">Document</text></g>
+      <g class="node n-det"   transform="translate(190,98)"><rect width="120" height="44"/>
+        <text class="t" x="60" y="20" text-anchor="middle">Router</text>
+        <text class="s" x="60" y="35" text-anchor="middle">fingerprint</text></g>
+      <g class="node n-det live" id="n_skill" transform="translate(425,94)"><rect width="150" height="52"/>
+        <text class="t" x="75" y="23" text-anchor="middle">Sandbox · skill v<tspan id="ver">1</tspan></text>
+        <text class="s" x="75" y="39" text-anchor="middle">extract() — pure Python</text></g>
+      <g class="node n-llm"   transform="translate(425,224)"><rect width="150" height="52"/>
+        <text class="t" x="75" y="23" text-anchor="middle">Extraction Agent</text>
+        <text class="s" x="75" y="39" text-anchor="middle">LLM fallback</text></g>
+      <g class="node n-det"   transform="translate(680,94)"><rect width="120" height="52"/>
+        <text class="t" x="60" y="23" text-anchor="middle">Validator</text>
+        <text class="s" x="60" y="39" text-anchor="middle">rules, no LLM</text></g>
+      <g class="node n-data"  transform="translate(900,98)"><rect width="120" height="44"/>
+        <text class="t" x="60" y="20" text-anchor="middle">Result</text>
+        <text class="s" x="60" y="35" text-anchor="middle">+ trace</text></g>
+      <g class="node n-state" transform="translate(675,276)"><rect width="130" height="48"/>
+        <text class="t" x="65" y="21" text-anchor="middle">Sample Pool</text>
+        <text class="s" x="65" y="37" text-anchor="middle">verified</text></g>
+      <g class="node n-llm"   transform="translate(425,404)"><rect width="150" height="52"/>
+        <text class="t" x="75" y="23" text-anchor="middle">Synthesis Agent</text>
+        <text class="s" x="75" y="39" text-anchor="middle">LLM · writes extract()</text></g>
+      <g class="node n-det"   transform="translate(675,404)"><rect width="130" height="52"/>
+        <text class="t" x="65" y="23" text-anchor="middle">Admission</text>
+        <text class="s" x="65" y="39" text-anchor="middle">held-out F1 ≥ τ</text></g>
+      <g class="node n-state" transform="translate(900,404)"><rect width="120" height="52"/>
+        <text class="t" x="60" y="23" text-anchor="middle">Registry</text>
+        <text class="s" x="60" y="39" text-anchor="middle">trial → active</text></g>
+      <g class="node n-det"   transform="translate(895,270)"><rect width="130" height="56"/>
+        <text class="t" x="65" y="23" text-anchor="middle">Monitor +</text>
+        <text class="t" x="65" y="40" text-anchor="middle">Attribution</text></g>
+
+      <text class="banner" x="560" y="548" text-anchor="middle">Every arrow into the registry is a deterministic check — no LLM ever issues a quality verdict.</text>
+
+      <g id="dots"></g>
+      <g id="fx"></g>
+    </svg>
+  </div>
+
+  <div class="hud">
+    <div class="card"><div class="k">Documents</div><div class="v" id="m_docs">0</div></div>
+    <div class="card"><div class="k">Cost / doc</div><div class="v amber" id="m_cost">—</div></div>
+    <div class="card"><div class="k">Cumulative cost</div>
+      <svg class="spark" id="spark" viewBox="0 0 400 52" preserveAspectRatio="none"><path id="spark_p" fill="none"/></svg>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="steps" id="steps"></div>
+    <button class="play" id="play" aria-label="play or pause">❚❚ Pause</button>
+  </div>
+
+  <div class="caption" aria-live="polite">
+    <div class="c-eye" id="c_eye">Scene 1 / 4</div>
+    <div class="c-body" id="c_body"></div>
+  </div>
+
+  <div class="legend" aria-hidden="true">
+    <span><i class="sw" style="background:var(--amber)"></i> LLM (expensive)</span>
+    <span><i class="sw" style="background:var(--blue)"></i> deterministic</span>
+    <span><i class="sw" style="background:var(--state)"></i> shared state</span>
+    <span><i class="sw" style="background:var(--green)"></i> pass / promote</span>
+    <span><i class="sw" style="background:var(--red)"></i> fail / deprecate</span>
+  </div>
+
+  <p class="foot">Numbers are illustrative of the key-free simulation (LLM ≈ 242 tokens/doc, recall ≈ 0).
+    The headline: under routing noise <b>A2 forgets 4 healthy memories, A3 forgets 0</b> — smart data-forgetting, quantified. Real figures come from a live run.</p>
+</div>
+
+<script>
+(function(){
+  var NS='http://www.w3.org/2000/svg';
+  var dotsG=document.getElementById('dots'), fxG=document.getElementById('fx');
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function P(id){return document.getElementById(id);}
+  var paths={skill:P('p_skill'),llm1:P('p_llm'),llm2:P('p_llm2'),
+             birth:P('p_birth'),golive:P('p_golive')};
+  var len={}; for(var k in paths) len[k]=paths[k].getTotalLength();
+  var skillNode=P('n_skill'), verEl=P('ver');
+
+  // ---- scenes ------------------------------------------------------------
+  var scenes=[
+    {name:'No memory yet', eye:'Scene 1 / 4 · cold start',
+     body:'No memory yet. Every document is a <b>recall miss</b> and falls back to the LLM — accurate but expensive. Each validator pass <b>accumulates</b> a verified experience into the pool.',
+     ms:9000, serving:false, drift:false, fill:true},
+    {name:'A memory forms', eye:'Scene 2 / 4 · a memory forms',
+     body:'The pool has accumulated enough experience. The synthesis agent <b>consolidates</b> it into an executable skill — procedural memory — self-repaired in the sandbox and admitted by a <b>held-out test</b>. The memory goes live.',
+     ms:8000, serving:false, drift:false, birth:true},
+    {name:'Recall collapses cost', eye:'Scene 3 / 4 · recall collapses cost',
+     body:'The agent now <b>recalls</b> the skill instead of re-reasoning: cheap deterministic Python, near-zero tokens. <b>Cost per doc collapses</b> — recall has replaced the LLM for this format.',
+     ms:8000, serving:true, drift:false},
+    {name:'Drift & smart-forget', eye:'Scene 4 / 4 · drift & smart-forgetting',
+     body:'The world drifts; the memory starts <b>failing</b>. Attribution charges the batch to <b>data_drift</b> (not routing noise) — <b>smart forgetting</b> — retires it, falls back to the LLM, and a <b>v2</b> is consolidated and admitted. Self-healed.',
+     ms:11000, serving:true, drift:true}
+  ];
+
+  // ---- metrics -----------------------------------------------------------
+  var docs=0, costHist=[], mDocs=P('m_docs'), mCost=P('m_cost'), sparkP=P('spark_p');
+  var LLM_COST=242, SKILL_COST=2;
+  function record(cost){
+    docs++; mDocs.textContent=docs;
+    mCost.textContent=Math.round(cost); mCost.className='v '+(cost>60?'amber':'blue');
+    costHist.push((costHist.length?costHist[costHist.length-1]:0)+cost);
+    if(costHist.length>120) costHist.shift();
+    var max=costHist[costHist.length-1]||1, n=costHist.length;
+    var d='M0,52';
+    for(var i=0;i<n;i++){ var x=(i/(Math.max(n-1,1)))*400, y=52-(costHist[i]/max)*50; d+=' L'+x.toFixed(1)+','+y.toFixed(1);}
+    sparkP.setAttribute('d',d);
+    sparkP.setAttribute('stroke', cost>60?'var(--amber)':'var(--blue)');
+    sparkP.setAttribute('stroke-width','2');
+  }
+
+  // ---- dots --------------------------------------------------------------
+  var dots=[];
+  function spawn(kind){ // kind: 'llm' | 'skill'
+    var c=document.createElementNS(NS,'circle'); c.setAttribute('class','dot');
+    c.setAttribute('r','5'); c.setAttribute('fill', kind==='skill'?'var(--blue)':'var(--amber)');
+    dotsG.appendChild(c);
+    dots.push({el:c,kind:kind,seg:0,d:0,dropped:false});
+  }
+  function pointAt(path,dist){ return path.getPointAtLength(Math.max(0,Math.min(dist,path.getTotalLength()))); }
+
+  function flash(x,y,color,txt){
+    if(reduce) return;
+    if(txt){ var t=document.createElementNS(NS,'text'); t.setAttribute('x',x);t.setAttribute('y',y);
+      t.setAttribute('text-anchor','middle'); t.setAttribute('font-family','var(--mono)');
+      t.setAttribute('font-size','14'); t.setAttribute('font-weight','700'); t.setAttribute('fill',color);
+      t.textContent=txt; fxG.appendChild(t);
+      var born=performance.now();
+      (function fade(){ var k=(performance.now()-born)/900; if(k>=1){t.remove();return;}
+        t.setAttribute('opacity',(1-k).toFixed(2)); t.setAttribute('y',(y-10*k).toFixed(1)); requestAnimationFrame(fade);})();
+    }
+  }
+
+  var SPEED=190; // px/sec
+  var V_SKILL=0.74, V_LLM=0.90; // fraction of each journey where the validator sits
+  function advance(dot,dt){
+    var step=SPEED*dt;
+    dot.d+=step;
+    if(dot.kind==='skill'){
+      place(dot,pointAt(paths.skill,dot.d));
+      if(!dot.checked && dot.d>=len.skill*V_SKILL){ dot.checked=true;
+        if(drifted){ dot.fail=true; flash(740,90,'var(--red)','✕'); } }
+      if(dot.d>=len.skill){ finish(dot, dot.fail?0:SKILL_COST); return true; }
+    } else {
+      var seg=len.llm1;
+      if(dot.d<seg){ place(dot,pointAt(paths.llm1,dot.d)); }
+      else { place(dot,pointAt(paths.llm2,dot.d-seg)); }
+      if(dot.d>=seg+len.llm2){ finish(dot, LLM_COST); return true; }
+    }
+    return false;
+  }
+  function place(dot,p){ dot.el.setAttribute('cx',p.x); dot.el.setAttribute('cy',p.y); }
+  function finish(dot,cost){ dot.el.remove(); record(cost); }
+
+  // ---- birth / heal ------------------------------------------------------
+  var birthActive=false;
+  function runBirth(version){
+    if(reduce){ verEl.textContent=version; skillNode.classList.remove('dim','dead'); skillNode.classList.add('live'); return; }
+    birthActive=true;
+    var c=document.createElementNS(NS,'circle'); c.setAttribute('r','6');
+    c.setAttribute('fill','var(--green)'); fxG.appendChild(c);
+    var t0=performance.now(), total=len.birth+len.golive, dur=2600, stamped=false;
+    (function step(now){
+      var k=Math.min((now-t0)/dur,1), dist=k*total, p;
+      if(dist<len.birth){ p=pointAt(paths.birth,dist); }
+      else { p=pointAt(paths.golive,dist-len.birth); }
+      c.setAttribute('cx',p.x); c.setAttribute('cy',p.y);
+      if(k>=0.42 && !stamped){ stamped=true; flash(740,398,'var(--green)','F1 ✓ PASS'); }
+      if(k<1){ requestAnimationFrame(step); }
+      else { c.remove(); verEl.textContent=version;
+        skillNode.classList.remove('dim','dead'); skillNode.classList.add('live');
+        flash(500,86,'var(--blue)','v'+version+' live'); birthActive=false; }
+    })(t0);
+  }
+  function deprecate(){
+    skillNode.classList.remove('live'); skillNode.classList.add('dead');
+    P('e_kill').setAttribute('opacity','1'); P('l_kill').setAttribute('opacity','1');
+    P('e_fallback').setAttribute('opacity','1');
+    flash(500,86,'var(--red)','deprecated');
+  }
+  function clearFx(){ P('e_kill').setAttribute('opacity','0'); P('l_kill').setAttribute('opacity','0');
+    P('e_fallback').setAttribute('opacity','0'); }
+
+  // ---- scene engine ------------------------------------------------------
+  var si=0, sceneStart=0, spawnAcc=0, lastT=0, playing=true, drifted=false, deprecatedFlag=false;
+  function current(){return scenes[si];}
+  function setScene(i){
+    si=i; sceneStart=performance.now(); spawnAcc=0; drifted=false; deprecatedFlag=false;
+    var s=scenes[i]; s._birthed=false; s._healed=false;
+    P('c_eye').textContent=s.eye; P('c_body').innerHTML=s.body;
+    document.querySelectorAll('.step').forEach(function(b,idx){b.setAttribute('aria-current', idx===i?'true':'false');});
+    clearFx();
+    if(i<2){ skillNode.classList.add('dim'); skillNode.classList.remove('dead','live'); verEl.textContent='1'; }
+    else { skillNode.classList.remove('dim','dead'); skillNode.classList.add('live'); verEl.textContent='1'; }
+    // seed the cost readout to the scene's expected baseline so it's never a stale, misleading value
+    var base = s.serving ? SKILL_COST : LLM_COST;
+    mCost.textContent = base; mCost.className = 'v ' + (base>60?'amber':'blue');
+    if(reduce){
+      if(i>=2) runBirth(i===3?2:1);
+      if(i===3){ skillNode.classList.remove('live'); skillNode.classList.add('dead');
+        mCost.textContent=LLM_COST; mCost.className='v amber'; }
+    }
+  }
+
+  function tick(now){
+    var dt=Math.min((now-lastT)/1000,0.05); lastT=now;
+    var s=current(), elapsed=now-sceneStart;
+
+    if(!reduce && playing){
+      spawnAcc+=dt;
+      // while the skill serves — even mid-drift — dots keep flowing to it and FAIL (red ✕); only
+      // after the monitor deprecates does traffic fall back to the LLM.
+      var interval = (s.serving && !deprecatedFlag) ? 0.5 : 0.85;
+      if(spawnAcc>=interval){ spawnAcc=0;
+        spawn((s.serving && !deprecatedFlag) ? 'skill' : 'llm'); }
+      if(s.birth && elapsed>1500 && !birthActive && !s._birthed){ s._birthed=true; runBirth(1); }
+      if(s.drift){
+        if(elapsed>2600 && !drifted){ drifted=true; flash(740,80,'var(--red)','drift'); }
+        if(elapsed>5200 && !deprecatedFlag){ deprecatedFlag=true; deprecate(); }
+        if(elapsed>7600 && !s._healed && !birthActive){ s._healed=true; runBirth(2);
+          drifted=false; deprecatedFlag=false; clearFx(); }
+      }
+      for(var i=dots.length-1;i>=0;i--){ if(advance(dots[i],dt)) dots.splice(i,1); }
+      if(elapsed>s.ms){ next(); }
+    }
+    requestAnimationFrame(tick);
+  }
+  function next(){ setScene((si+1)%scenes.length); }
+  function goto(i){ dots.forEach(function(d){d.el.remove();}); dots=[]; playing=true;
+    playBtn.textContent='❚❚ Pause'; setScene(i); }
+
+  // ---- controls ----------------------------------------------------------
+  var stepsEl=P('steps');
+  scenes.forEach(function(s,i){
+    var b=document.createElement('button'); b.className='step';
+    b.innerHTML='<span class="num">'+(i+1)+'</span>'+s.name;
+    b.addEventListener('click',function(){ goto(i); });
+    stepsEl.appendChild(b);
+  });
+  var playBtn=P('play'), pauseAt=0;
+  playBtn.addEventListener('click',function(){
+    if(reduce) return;
+    playing=!playing; playBtn.textContent = playing?'❚❚ Pause':'▶ Play';
+    if(playing){ sceneStart+=performance.now()-pauseAt; lastT=performance.now(); }
+    else { pauseAt=performance.now(); }
+  });
+
+  // ---- go ----------------------------------------------------------------
+  lastT=performance.now();
+  if(reduce){ playing=false; playBtn.textContent='▶ Play'; playBtn.disabled=true; }
+  setScene(0);
+  requestAnimationFrame(tick);
+})();
+</script>
