@@ -46,20 +46,18 @@ where the schema declares a money *amount*.
 out of the verified pool — so no skill was ever synthesised from them. Skill-served documents
 recorded **zero** validation failures in every arm.
 
-**3. Cross-model pool verification was measured, found net-negative, and removed.** Arm 2 checked
-138 pool-bound samples and rejected 2 (1.45%), for +12% tokens — and it *slowed skill formation*,
-since rejecting samples shrinks pools (115 → 76 skill-served docs, 6 → 4 active skills). Its
-detection rate on the one genuinely contaminated field was ~20-29%, because the second model
-shares the same layout-induced confusion: **correlated errors defeat cross-model agreement**, and
-layout ambiguity produces correlated errors by construction. A deterministic cross-field rule
-(field-overlap, rule 6) caught **7/7** of the same contaminations at zero API cost, so the module
-was removed.
+**3. Cross-model pool verification, and why it was replaced by a rule.** Arm 2 checked 138
+pool-bound samples and rejected 2 (1.45%), for +12% tokens, and shrank pools enough to move
+skill-served docs 115 → 76 and active skills 6 → 4. Detection on the one contaminated field was
+~20-29%: the second model shares the same layout-induced confusion, so the two extractors agree on
+the error. A cross-field rule (field-overlap, rule 6) caught **7/7** of the same contaminations at
+zero API cost, and the verifier was removed.
 
 **4. Attribution issued zero verdicts in every arm.** Attribution classifies
 *failure batches* raised by the monitor, and the monitor watches validation outcomes. Skill-served
 documents had zero validation failures, so no batch ever formed. Silent failures — which pass
 validation by definition — are structurally invisible to the monitor and therefore to attribution.
-They are the admission gate's concern; the bottleneck for attribution is failures, not volume.
+They are caught at admission instead; the bottleneck for attribution is failures, not volume.
 
 ## Cost
 

@@ -230,7 +230,8 @@ route hit on an active/trial skill → sandbox executes the code → validator c
 Everything above is key-free simulated. The live arms below run real `qwen-turbo` / `qwen-plus`
 (extraction) and `qwen-coder-plus` (synthesis) over 420 documents each; artifacts, including the
 **verbatim parser code the synthesiser wrote**, are in [`evals/live_results/`](evals/live_results/).
-Results include one negative arm, for a mechanism that was measured and then removed.
+One arm measures a mechanism that these numbers led to removing; it is reported alongside the
+others so the removal can be checked against the data behind it.
 
 |                              | weak        | weak + cross-verify † | **strong**    | weak + rule 6 |
 | ---------------------------- | ----------- | ------------------- | ------------------- | ------------- |
@@ -242,9 +243,10 @@ Results include one negative arm, for a mechanism that was measured and then rem
 | active skills                | 6           | 4                   | **10**        | 5             |
 | total tokens                 | 260,669     | 292,289             | 312,788             | 234,674       |
 
-† Not reproducible from the current tree: the cross-model verifier and its `--verify-model` flag
-were removed after this run (see below). Artifacts are in
-[`evals/live_results/`](evals/live_results/). The other columns reproduce with
+† This arm measures the cross-model verifier, which was removed on the strength of these
+numbers — the verifier and its `--verify-model` flag are no longer in the tree, so this column
+alone does not reproduce. Artifacts remain in [`evals/live_results/`](evals/live_results/); the
+other columns reproduce with
 `python -m evals.ablation --config A3 --live --samples-per-format 30 --tag <arm>`.
 
 **The extraction model, not the pipeline, drove the failures.** Same prompt, same rules, same
@@ -263,23 +265,20 @@ entries, all the same failure — a two-column header renders invoice number and
 and the extractor returned the whole line (`"NAK-2024-22337 Nakatomi Trading Co"`). Well-formed,
 non-empty, wrong, and invisible to every form-level rule.
 
-We first built the obvious fix — an independent second extractor gating pool entry — and it lost
-on every axis: ~20-29% detection (the second model shares the layout confusion, so **correlated
-errors defeat cross-model agreement**), +12% tokens, and it *slowed skill formation* because
-rejecting samples shrinks pools. A three-line deterministic cross-field rule (fields must not
-swallow one another) caught **2/2** live, **7/7** on replay of the prior run's actual outputs, and
-**0/420** false positives on perfect extractions — at zero API cost. The cross-model module was
-removed.
+Gating pool entry on an independent second extractor detected ~20-29% of these, at +12% tokens,
+and slowed skill formation — rejecting samples shrinks pools, so skill-served documents fell
+115 → 76. Detection is capped because the second model shares the layout-induced confusion:
+**correlated errors defeat cross-model agreement**, and layout ambiguity produces correlated
+errors by construction. A three-line cross-field rule (fields must not swallow one another)
+caught **2/2** live, **7/7** on replay of the prior run's outputs, and **0/420** false positives
+on perfect extractions, at zero API cost — so the cross-model verifier was removed in favour of
+the rule.
 
-Every systematic error observed in these runs was caught by a deterministic rule rather than by
-a second model.
-
-**Attribution issued zero verdicts in every arm.** It classifies *failure
-batches* raised by the monitor, and the monitor watches validation outcomes. Skill-served documents
-had zero validation failures, so no batch formed. Silent failures pass validation by definition and
-are therefore structurally invisible to the monitor — they are the admission gate's problem, not
-the accountant's. The two defences cover different failure classes and neither substitutes for the
-other.
+**Attribution issued zero verdicts in every arm.** It classifies *failure batches* raised by the
+monitor, and the monitor watches validation outcomes; skill-served documents had zero validation
+failures, so no batch formed. Silent failures pass validation by definition, so the monitor cannot
+see them — they are caught at admission instead. The bottleneck for attribution is failures, not
+document volume.
 
 **Cost.** Tokens are the unit: Qwen Cloud bills by credit subscription with no published per-token
 rate table, so `costs:` is empty and every `cost_usd: 0.0` in the artifacts is a null artifact, not
@@ -290,17 +289,16 @@ inference tokens; that is what the synthesis cost amortises against.
 <details>
 <summary>The first live run (210 docs) and the silent-failure mechanism it exposed</summary>
 
-### Live run — real Qwen, and the limit it exposed
+### First live run (210 docs)
 
 Everything above is key-free simulated. One **live** run against real `qwen-turbo` (extraction) +
 `qwen-coder-plus` (synthesis) — 210 docs, 14 formats, artifacts in
-[`evals/live_results/`](evals/live_results/) — produced a result the simulation *could not*
-surface, and it bounds the project's central claim. Reporting it in full, because it is the most
-useful thing here.
+[`evals/live_results/`](evals/live_results/) — produced a result the simulated arms cannot
+produce, and it bounds the claim above.
 
 **Simulated arms (injected defects):** A1 = 63 silent failures over 142 skill-served docs;
-A2/A3 = 0. The gate catches the injected memorization-overfit candidate — which is exactly, and
-only, what those arms were built to test.
+A2/A3 = 0. These arms inject a memorization-overfit candidate and measure whether the gate
+rejects it; they do not sample the defect distribution of a real synthesiser.
 
 **Live A3:** **11 silent failures over 31 skill-served docs.** A *different* defect class, and the
 gate cannot catch it by construction: admission scores a candidate against its format's verified
@@ -308,7 +306,7 @@ pool, and **the pool is LLM-produced** ([`admission.py`](src/prove/admission.py)
 pool fields, never ground truth). Where the extractor is systematically wrong on a field, the pool
 encodes that error, the skill faithfully reproduces it, and admission sees agreement.
 
-The boundary is sharp and predicted by the design:
+The boundary follows the rule set:
 
 > The validator's only genuine **cross-field** check is `subtotal + tax == total`. Every money
 > field held. `invoice_number` (no rule at all) and `line_item_count` (a *type*-only rule) are the
@@ -317,27 +315,25 @@ The boundary is sharp and predicted by the design:
 Where the validator *had* a cross-check it worked: systematic tax-rate-vs-amount confusion on six
 formats and date errors on a seventh were caught by `money_unparseable` / `date_unparseable`,
 keeping corrupt samples out of the pool so those seven bad skills were **never synthesized**. The
-gate is also non-vacuous on real code: it **rejected 4** synthesized candidates and admitted 7.
+gate rejected **4** synthesized candidates on real code and admitted 7.
 
-**Severity.** Nine of the eleven are `invoice_number` on the two `banner.html`
-formats — the only template that renders `#{{ invoice_number }}` while ground truth stores the
-value without the `#`. The LLM copied the page verbatim, as its prompt instructs. So the *instance*
-is a low-severity normalization mismatch that our own benchmark convention created, not a
-hallucinated identifier. **The mechanism it demonstrates is unaffected**: a systematic divergence
-between pool and ground truth propagates into an admitted skill and is invisible to a
-self-supervised oracle, whether the divergence is one character or a fabricated value. The other
-two failures are a genuine skill **generalization** defect — `line_item_count` on F1_acme, wrong on
-exactly the production docs with 5 line items, which a 3-document holdout had no power to detect.
+**Severity.** Nine of the eleven are `invoice_number` on the two `banner.html` formats — the only
+template that renders `#{{ invoice_number }}` while ground truth stores the value without the `#`.
+The extractor copied the page verbatim, as its prompt instructs, so these are a normalization
+mismatch introduced by the benchmark's own convention rather than a misread identifier. The
+mechanism is the same either way: a systematic divergence between pool and ground truth propagates
+into an admitted skill and a self-supervised oracle cannot see it. The other two are a
+generalization defect — `line_item_count` on F1_acme, wrong on exactly the documents with 5 line
+items, which a 3-document holdout had no power to detect.
 
 > A self-supervised admission oracle bounds skill quality at
 > the extractor's systematic-error floor. Deterministic outcome verification is only as strong as
 > the cross-checks in the rule set — it cannot manufacture signal about fields no rule constrains.
 
-**Other live numbers, and what they mean.** Validation pass rate 0.5048 is not noise: seven of
-fourteen formats had *100%* LLM validation failure, layout-conditioned (a `Tax 8.25% 365.11` line
-leads qwen-turbo to return the rate as the amount). No skill reached `active`, which is pure run
-scale — promotion needs `synthesis_trigger` (10) + `trial_docs` (10) ≈ 20+ docs per format and this
-run had 15, so `active` was arithmetically unreachable.
+Validation pass rate 0.5048 is layout-conditioned rather than random: seven of fourteen formats
+had *100%* LLM validation failure, driven by a `Tax 8.25% 365.11` line that leads qwen-turbo to
+return the rate as the amount. No skill reached `active` at this run scale — promotion needs
+`synthesis_trigger` (10) + `trial_docs` (10) ≈ 20+ documents per format, and this run had 15.
 
 **Cost.** 48,424 in / 16,920 out = **65,344 tokens** over 210 docs. The 31 skill-served docs
 consumed **zero** marginal inference tokens — a compiled skill's per-document cost is CPU only.
