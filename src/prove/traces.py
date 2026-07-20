@@ -29,9 +29,17 @@ CREATE TABLE IF NOT EXISTS traces (
     validation       TEXT,   -- json: ValidationVerdict
     cost_usd         REAL,
     tokens_in        INTEGER,
-    tokens_out       INTEGER
+    tokens_out       INTEGER,
+    input_integrity  REAL DEFAULT 1.0
 );
 """
+
+# additive column migrations for stores created by an earlier schema version. Attribution reads
+# input_integrity off the trace, so a store that silently omitted it would replay every historical
+# failure as clean-input and mis-charge it (Hard Design Rule 4: the trace IS the data source).
+_MIGRATIONS = [
+    "ALTER TABLE traces ADD COLUMN input_integrity REAL DEFAULT 1.0",
+]
 
 
 class TraceStore:
@@ -44,13 +52,19 @@ class TraceStore:
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        for statement in _MIGRATIONS:
+            try:
+                self._conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass          # column already present — CREATE TABLE above made it
+        self._conn.commit()
 
     def write(self, trace: Trace) -> None:
         self._conn.execute(
             """INSERT INTO traces (doc_id, ts, route_format_id, route_confidence,
                 route_method, route_fingerprint, skill_id, skill_version, extraction_source,
-                field_results, validation, cost_usd, tokens_in, tokens_out)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                field_results, validation, cost_usd, tokens_in, tokens_out, input_integrity)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 trace.doc_id,
                 trace.ts,
@@ -66,6 +80,7 @@ class TraceStore:
                 trace.cost_usd,
                 trace.tokens_in,
                 trace.tokens_out,
+                trace.input_integrity,
             ),
         )
         self._conn.commit()
@@ -86,6 +101,9 @@ class TraceStore:
             cost_usd=row["cost_usd"],
             tokens_in=row["tokens_in"],
             tokens_out=row["tokens_out"],
+            # pre-migration rows carry NULL; 1.0 (pristine) is the honest default — it exonerates
+            # nobody, it just declines to claim degradation that was never measured.
+            input_integrity=row["input_integrity"] if row["input_integrity"] is not None else 1.0,
         )
 
     def all(self) -> list[Trace]:
