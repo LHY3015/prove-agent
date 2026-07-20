@@ -28,7 +28,7 @@ its `--verify-model` flag were removed after this run (see below).
 | admission rejections | 8 | 11 | 14 |
 | total tokens | 260,669 | 292,289 | 312,788 |
 
-`A3_live_*` is an earlier 210-document run at 15 docs/format.
+`A3_live_*` is an earlier 210-document run at 15 docs/format — see the last section.
 
 `skills/` and `skills_strong/` hold the **verbatim parser code** the synthesiser wrote. They are
 excluded from linting.
@@ -58,6 +58,43 @@ zero API cost, and the verifier was removed.
 documents had zero validation failures, so no batch ever formed. Silent failures — which pass
 validation by definition — are structurally invisible to the monitor and therefore to attribution.
 They are caught at admission instead; the bottleneck for attribution is failures, not volume.
+
+## The first run (210 docs) and the mechanism it exposed
+
+`A3_live_*` is an earlier 210-document run at 15 docs/format, against qwen-turbo extraction. It
+produced **11 silent failures over 31 skill-served documents** — a result no simulated arm can
+produce, and the reason the field-overlap rule exists.
+
+The simulated arms inject a memorization-overfit candidate and measure whether the gate rejects it;
+they do not sample the defect distribution of a real synthesiser. The live defect class is
+different, and the gate cannot catch it by construction: admission scores a candidate against its
+format's verified pool, and the pool is LLM-produced (`admission.py` compares against pool fields,
+never ground truth). Where the extractor is systematically wrong on a field, the pool encodes that
+error, the skill faithfully reproduces it, and admission sees agreement.
+
+The boundary followed the rule set exactly. Every money field held; `invoice_number` (no rule at
+all) and `line_item_count` (a type-only rule at that time) were the only two fields that failed
+silently, and they account for all eleven. Where the validator *had* a cross-check it worked:
+systematic tax-rate-vs-amount confusion on six formats and date errors on a seventh were caught by
+`money_unparseable` / `date_unparseable`, keeping corrupt samples out of the pool so those seven bad
+skills were never synthesised. The gate rejected 4 candidates on real code and admitted 7.
+
+Nine of the eleven are `invoice_number` on the two `banner.html` formats — the only template that
+renders `#{{ invoice_number }}` while ground truth stores the value without the `#`. The extractor
+copied the page verbatim, as its prompt instructs, so those are a normalization mismatch introduced
+by the benchmark's own convention rather than a misread identifier. The other two are a
+generalization defect: `line_item_count` on F1_acme, wrong on exactly the documents with 5 line
+items, which a 3-document holdout had no power to detect. The mechanism is the same either way — a
+systematic divergence between pool and ground truth propagates into an admitted skill, and a
+self-supervised oracle cannot see it.
+
+No skill reached `active` at this run scale: promotion needs `synthesis_trigger` (10) +
+`trial_docs` (10) ≈ 20+ documents per format, and this run had 15.
+
+This run is not fully post-hoc auditable — the registry ran in-memory so the synthesised code is
+gone, and traces stored per-field booleans rather than extracted values. The diagnosis rests on
+per-format pool/skill correlation plus one confirming API call. Both limits were fixed for the
+420-document arms above.
 
 ## Cost
 

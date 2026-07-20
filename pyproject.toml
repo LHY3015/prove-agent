@@ -5,7 +5,6 @@ description = "PROVE — Outcome-Verified Skill Lifecycle Governance for Multi-A
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic",
     "openai",
     "langgraph",
     "fastapi",
