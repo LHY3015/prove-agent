@@ -229,6 +229,66 @@ route hit on an active/trial skill → sandbox executes the code → validator c
 
 </details>
 
+### Live run — real Qwen, and the limit it exposed
+
+Everything above is key-free simulated. One **live** run against real `qwen-turbo` (extraction) +
+`qwen-coder-plus` (synthesis) — 210 docs, 14 formats, artifacts in
+[`evals/live_results/`](evals/live_results/) — produced a result the simulation *could not*
+surface, and it bounds the project's central claim. Reporting it in full, because it is the most
+useful thing here.
+
+**Simulated arms (injected defects):** A1 = 63 silent failures over 142 skill-served docs;
+A2/A3 = 0. The gate catches the injected memorization-overfit candidate — which is exactly, and
+only, what those arms were built to test.
+
+**Live A3:** **11 silent failures over 31 skill-served docs.** A *different* defect class, and the
+gate cannot catch it by construction: admission scores a candidate against its format's verified
+pool, and **the pool is LLM-produced** ([`admission.py`](src/prove/admission.py) compares against
+pool fields, never ground truth). Where the extractor is systematically wrong on a field, the pool
+encodes that error, the skill faithfully reproduces it, and admission sees agreement.
+
+The boundary is sharp and predicted by the design:
+
+> The validator's only genuine **cross-field** check is `subtotal + tax == total`. Every money
+> field held. `invoice_number` (no rule at all) and `line_item_count` (a *type*-only rule) are the
+> only two fields that failed silently — and they account for **all eleven**.
+
+Where the validator *had* a cross-check it worked: systematic tax-rate-vs-amount confusion on six
+formats and date errors on a seventh were caught by `money_unparseable` / `date_unparseable`,
+keeping corrupt samples out of the pool so those seven bad skills were **never synthesized**. The
+gate is also non-vacuous on real code: it **rejected 4** synthesized candidates and admitted 7.
+
+**Severity, stated honestly.** Nine of the eleven are `invoice_number` on the two `banner.html`
+formats — the only template that renders `#{{ invoice_number }}` while ground truth stores the
+value without the `#`. The LLM copied the page verbatim, as its prompt instructs. So the *instance*
+is a low-severity normalization mismatch that our own benchmark convention created, not a
+hallucinated identifier. **The mechanism it demonstrates is unaffected**: a systematic divergence
+between pool and ground truth propagates into an admitted skill and is invisible to a
+self-supervised oracle, whether the divergence is one character or a fabricated value. The other
+two failures are a genuine skill **generalization** defect — `line_item_count` on F1_acme, wrong on
+exactly the production docs with 5 line items, which a 3-document holdout had no power to detect.
+
+> **The conclusion, stated as a law:** a self-supervised admission oracle bounds skill quality at
+> the extractor's systematic-error floor. Deterministic outcome verification is only as strong as
+> the cross-checks in the rule set — it cannot manufacture signal about fields no rule constrains.
+
+**Other live numbers, and what they mean.** Validation pass rate 0.5048 is not noise: seven of
+fourteen formats had *100%* LLM validation failure, layout-conditioned (a `Tax 8.25% 365.11` line
+leads qwen-turbo to return the rate as the amount). No skill reached `active`, which is pure run
+scale — promotion needs `synthesis_trigger` (10) + `trial_docs` (10) ≈ 20+ docs per format and this
+run had 15, so `active` was arithmetically unreachable.
+
+**Cost.** 48,424 in / 16,920 out = **65,344 tokens** over 210 docs. The 31 skill-served docs
+consumed **zero** marginal inference tokens — a compiled skill's per-document cost is CPU only.
+The `cost_usd: 0.0` fields in the live artifacts are a **null artifact, not a measurement**: cost
+accounting is implemented and provider-agnostic, but Qwen Cloud bills by credit subscription with
+no published per-token rate table, so `costs:` is empty and tokens are the honest unit.
+
+**Auditability limit.** The live run is not fully post-hoc auditable: the registry ran in-memory so
+the synthesized skill code is gone, and traces store per-field booleans rather than extracted
+values. The diagnosis above rests on per-format pool/skill correlation plus one confirming API
+call, not on replaying the artifacts.
+
 ### Real data — CORD-v2 receipts (`evals/real_data.py`)
 
 The synthetic ablations prove the *mechanism*; a real dataset tests **external validity**.

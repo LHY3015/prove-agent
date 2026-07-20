@@ -1,0 +1,24 @@
+{
+  "config": "A3",
+  "mode": "live",
+  "n_docs": 210,
+  "mean_field_f1": 0.9012,
+  "validation_pass_rate": 0.5048,
+  "skill_docs": 31,
+  "silent_failure_count": 11,
+  "silent_failure_rate_over_skill": 0.3548,
+  "extraction_cost_per_doc": 0.0,
+  "extraction_cost_usd": 0.0,
+  "synthesis_cost_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "mean_tokens_per_doc": 311.2,
+  "source_counts": {
+    "llm": 179,
+    "skill": 31
+  },
+  "skills": {
+    "trial": 7,
+    "candidate": 4
+  },
+  "n_rejections": 4
+}
