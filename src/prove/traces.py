@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS traces (
     skill_version    INTEGER,
     extraction_source TEXT,
     field_results    TEXT,   -- json: {field: bool}
+    extracted_fields TEXT,   -- json: {field: str} — the values, so a run is replayable
     validation       TEXT,   -- json: ValidationVerdict
     cost_usd         REAL,
     tokens_in        INTEGER,
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS traces (
 # failure as clean-input and mis-charge it (Hard Design Rule 4: the trace IS the data source).
 _MIGRATIONS = [
     "ALTER TABLE traces ADD COLUMN input_integrity REAL DEFAULT 1.0",
+    "ALTER TABLE traces ADD COLUMN extracted_fields TEXT",
 ]
 
 
@@ -63,8 +65,9 @@ class TraceStore:
         self._conn.execute(
             """INSERT INTO traces (doc_id, ts, route_format_id, route_confidence,
                 route_method, route_fingerprint, skill_id, skill_version, extraction_source,
-                field_results, validation, cost_usd, tokens_in, tokens_out, input_integrity)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                field_results, extracted_fields, validation, cost_usd, tokens_in, tokens_out,
+                input_integrity)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 trace.doc_id,
                 trace.ts,
@@ -76,6 +79,7 @@ class TraceStore:
                 trace.skill_version,
                 trace.extraction_source,
                 json.dumps(trace.field_results),
+                json.dumps(trace.extracted_fields),
                 trace.validation.model_dump_json(),
                 trace.cost_usd,
                 trace.tokens_in,
@@ -97,6 +101,8 @@ class TraceStore:
             skill_version=row["skill_version"],
             extraction_source=row["extraction_source"],
             field_results=json.loads(row["field_results"]) if row["field_results"] else {},
+            extracted_fields=(json.loads(row["extracted_fields"])
+                              if row["extracted_fields"] else {}),
             validation=ValidationVerdict.model_validate_json(row["validation"]),
             cost_usd=row["cost_usd"],
             tokens_in=row["tokens_in"],

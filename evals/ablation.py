@@ -23,8 +23,9 @@ import argparse
 import json
 import random
 import re
+import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from evals.fake_skills import FakeSynthesizer
 
@@ -33,6 +34,7 @@ from prove.datagen.generator import FORMATS, generate_dataset, load_manifest
 from prove.layout import extract_layout
 from prove.llm_client import FakeClient, build_client
 from prove.pipeline import Pipeline
+from prove.registry import Registry
 from prove.schemas import TARGET_FIELDS, Document, GroundTruth
 from prove.traces import TraceStore
 from prove.validator import field_f1
@@ -105,9 +107,17 @@ def run_ablation(
     live: bool,
     error_rate: float,
     overfit_first_k: int = 0,
+    extraction_model: Optional[str] = None,
+    tag: Optional[str] = None,
 ) -> dict[str, Any]:
     cfg = load_config()
     cfg["ablation"]["mode"] = config_name
+    if extraction_model:
+        cfg["model"]["extraction"] = extraction_model
+    # `tag` namespaces the output files so arms that differ only by model don't overwrite
+    # each other — the weak-extractor arm IS the evidence for the failure mode, so losing it
+    # to a later strong-extractor run would destroy the comparison.
+    stem = f"{config_name}_{tag}" if tag else config_name
 
     data_dir, manifest = build_dataset(samples_per_format, seed)
 
@@ -130,13 +140,24 @@ def run_ablation(
         client = FakeClient(_responder, costs=cfg.get("costs"))
 
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
-    trace_store = TraceStore(_OUT_DIR / f"{config_name}_traces.sqlite")
+    trace_store = TraceStore(_OUT_DIR / f"{stem}_traces.sqlite")
     # fresh store each run
     trace_store.close()
-    Path(_OUT_DIR / f"{config_name}_traces.sqlite").unlink(missing_ok=True)
-    trace_store = TraceStore(_OUT_DIR / f"{config_name}_traces.sqlite")
+    Path(_OUT_DIR / f"{stem}_traces.sqlite").unlink(missing_ok=True)
+    trace_store = TraceStore(_OUT_DIR / f"{stem}_traces.sqlite")
 
-    pipeline = Pipeline(cfg, client, trace_store=trace_store)
+    # a persistent registry, so the synthesized skill CODE survives the run and the result is
+    # post-hoc auditable. With an in-memory registry the code lands in a scratch tempdir and the
+    # only evidence of what the synthesiser actually wrote is gone by the time anyone asks.
+    reg_dir = _OUT_DIR / f"{stem}_registry"
+    shutil.rmtree(reg_dir, ignore_errors=True)
+    reg_dir.mkdir(parents=True, exist_ok=True)
+    ledger = cfg.get("ledger", {})
+    registry = Registry(
+        reg_dir / "registry.sqlite", skills_dir=reg_dir / "skills",
+        prior=ledger.get("prior", 1.0), decay=ledger.get("decay", 0.97),
+    )
+    pipeline = Pipeline(cfg, client, trace_store=trace_store, registry=registry)
 
     rows: list[dict[str, Any]] = []
     for entry in manifest:
@@ -159,7 +180,7 @@ def run_ablation(
             }
         )
 
-    metrics_path = _OUT_DIR / f"{config_name}_metrics.jsonl"
+    metrics_path = _OUT_DIR / f"{stem}_metrics.jsonl"
     with open(metrics_path, "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
@@ -170,7 +191,10 @@ def run_ablation(
     skills = pipeline.registry.all_skills()
     summary = {
         "config": config_name,
+        "tag": tag,
         "mode": "live" if live else "simulated",
+        "extraction_model": cfg["model"]["extraction"],
+        "synthesis_model": cfg["model"]["synthesis"],
         "n_docs": n,
         "mean_field_f1": round(sum(r["field_f1"] for r in rows) / n, 4) if n else 0.0,
         "validation_pass_rate": round(sum(r["passed"] for r in rows) / n, 4) if n else 0.0,
@@ -182,14 +206,23 @@ def run_ablation(
         "extraction_cost_per_doc": round(sum(r["cost_usd"] for r in rows) / n, 6) if n else 0.0,
         "extraction_cost_usd": round(sum(r["cost_usd"] for r in rows), 6),
         "synthesis_cost_usd": lifecycle_cost,   # amortized separately, not hidden
+        # tokens, not dollars, are the auditable unit when the provider publishes no per-token
+        # rate table — a cost-only figure reads 0.0 and hides synthesis spend completely.
+        "synthesis_tokens_in": pipeline.lifecycle_tokens_in,
+        "synthesis_tokens_out": pipeline.lifecycle_tokens_out,
+        "extraction_tokens_in": sum(r["tokens_in"] for r in rows),
+        "extraction_tokens_out": sum(r["tokens_out"] for r in rows),
+        "total_tokens": (sum(r["tokens_in"] + r["tokens_out"] for r in rows)
+                         + pipeline.lifecycle_tokens_in + pipeline.lifecycle_tokens_out),
         "total_cost_usd": round(sum(r["cost_usd"] for r in rows) + lifecycle_cost, 6),
         "mean_tokens_per_doc": round(sum(r["tokens_in"] + r["tokens_out"] for r in rows) / n, 1) if n else 0.0,
         "source_counts": _counts(r["source"] for r in rows),
         "skills": _counts(s.state for s in skills),
+        "attributions": pipeline.attributions,
         "n_rejections": sum(len([e for e in pipeline.registry.events(s.skill_id)
                                  if e["event_type"] == "rejected"]) for s in skills),
     }
-    with open(_OUT_DIR / f"{config_name}_summary.json", "w", encoding="utf-8") as f:
+    with open(_OUT_DIR / f"{stem}_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
     trace_store.close()
@@ -212,6 +245,10 @@ def main() -> None:
     ap.add_argument("--live", action="store_true", help="use the real LLM (spends tokens)")
     ap.add_argument("--error-rate", type=float, default=0.04,
                     help="simulated per-field error rate (ignored under --live)")
+    ap.add_argument("--extraction-model", default=None,
+                    help="override model.extraction (e.g. qwen-plus) for this run")
+    ap.add_argument("--tag", default=None,
+                    help="namespace the output files so arms don't overwrite each other")
     ap.add_argument("--overfit-first-k", type=int, default=0,
                     help="simulated only: first k synthesized formats emit the overfit "
                          "demonstrator (use with A1 vs A2 to show the gate catching silent failures)")
@@ -223,6 +260,8 @@ def main() -> None:
     summary = run_ablation(
         args.config, args.samples_per_format, args.seed, args.live, args.error_rate,
         overfit_first_k=args.overfit_first_k,
+        extraction_model=args.extraction_model,
+        tag=args.tag,
     )
     print(json.dumps(summary, indent=2))
 

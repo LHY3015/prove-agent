@@ -132,6 +132,11 @@ class Pipeline:
         self._frozen_rules: set[str] = set()      # rule_defect remedy: rules excused from the ledger
         self.attributions: list[dict] = []        # verdict log (injected-vs-attributed eval reads this)
         self.lifecycle_cost_usd = 0.0
+        # tokens are the honest unit when no per-token rate table exists (Qwen Cloud bills by
+        # credit subscription), so lifecycle spend is counted in tokens as well as cost — a
+        # cost-only counter reads as 0.0 and silently hides synthesis spend entirely.
+        self.lifecycle_tokens_in = 0
+        self.lifecycle_tokens_out = 0
         self._app = self._build_graph()
 
     # ---- graph nodes -----------------------------------------------------
@@ -172,7 +177,12 @@ class Pipeline:
         return {"extraction": ext, "skill_id": skill.skill_id, "skill_version": skill.version}
 
     def _validate_node(self, state: PipelineState) -> dict:
-        return {"verdict": self._validate(state["extraction"], state.get("ground_truth"))}
+        # the layout is passed so structural cross-checks (item-row count) can fire; validator
+        # seams that predate it accept and ignore the kwarg.
+        return {"verdict": self._validate(
+            state["extraction"], state.get("ground_truth"),
+            text_layout=state["document"].text_layout,
+        )}
 
     def _finalize_node(self, state: PipelineState) -> dict:
         ext = state["extraction"]
@@ -197,6 +207,7 @@ class Pipeline:
             skill_id=ext.skill_id, skill_version=state.get("skill_version"),
             extraction_source=ext.source,
             field_results=verdict.field_diffs or {},
+            extracted_fields=dict(ext.fields),
             validation=verdict,
             input_integrity=input_integrity(state["document"].text_layout),
             cost_usd=ext.cost_usd, tokens_in=ext.tokens_in, tokens_out=ext.tokens_out,
@@ -363,6 +374,8 @@ class Pipeline:
         schema_version = samples[0].text_layout.get("schema_version", 1)
         skill = self.registry.create_candidate(fingerprint, synth.code, schema_version)
         self.lifecycle_cost_usd += synth.cost_usd
+        self.lifecycle_tokens_in += synth.tokens_in
+        self.lifecycle_tokens_out += synth.tokens_out
         self.registry.log_event(
             skill.skill_id, "synthesized",
             {"attempts": synth.attempts, "passed_training": synth.passed_training,
