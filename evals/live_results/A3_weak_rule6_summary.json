@@ -1,0 +1,33 @@
+{
+  "config": "A3",
+  "tag": "weak_rule6",
+  "mode": "live",
+  "extraction_model": "qwen-turbo",
+  "synthesis_model": "qwen-coder-plus",
+  "n_docs": 420,
+  "mean_field_f1": 0.9205,
+  "validation_pass_rate": 0.4976,
+  "skill_docs": 97,
+  "silent_failure_count": 0,
+  "silent_failure_rate_over_skill": 0.0,
+  "extraction_cost_per_doc": 0.0,
+  "extraction_cost_usd": 0.0,
+  "synthesis_cost_usd": 0.0,
+  "synthesis_tokens_in": 105966,
+  "synthesis_tokens_out": 9401,
+  "extraction_tokens_in": 88672,
+  "extraction_tokens_out": 30635,
+  "total_tokens": 234674,
+  "total_cost_usd": 0.0,
+  "mean_tokens_per_doc": 284.1,
+  "source_counts": {
+    "llm": 323,
+    "skill": 97
+  },
+  "skills": {
+    "active": 5,
+    "candidate": 7
+  },
+  "attributions": [],
+  "n_rejections": 7
+}

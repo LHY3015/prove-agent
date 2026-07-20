@@ -33,3 +33,8 @@ packages = ["src/prove"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+# Verbatim LLM-written skill code, kept as run evidence. Never linted or reformatted —
+# editing it would destroy the artifact it exists to preserve.
+extend-exclude = ["evals/live_results/skills", "evals/live_results/skills_strong"]

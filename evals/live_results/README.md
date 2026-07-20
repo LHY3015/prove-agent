@@ -1,51 +1,79 @@
 # Live run artifacts — real Qwen, not simulated
 
-`evals/out/` is gitignored and every simulated run overwrites it, so the one **live** run's
-outputs are preserved here as evidence.
-
-## What produced these
+`evals/out/` is gitignored and every run overwrites it, so the **live** arms are preserved here.
+All arms use the same 14-format synthetic corpus and the same synthesiser
+(`qwen-coder-plus`); only the extraction model and the verification setup differ.
 
 ```bash
-DASHSCOPE_API_KEY=... python -m evals.ablation --config A3 --live --samples-per-format 15 --seed 0
+DASHSCOPE_API_KEY=... python -m evals.ablation --config A3 --live \
+    --samples-per-format 30 --seed 0 --tag <arm> [--extraction-model qwen-plus]
 ```
 
-Real calls against `qwen-turbo` (extraction) and `qwen-coder-plus` (synthesis) through the
-OpenAI-compatible endpoint `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`, on the
-14-format synthetic corpus (210 documents). Dated 2026-07-20.
+Endpoint: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Dated 2026-07-20.
 
-| | |
-| --- | --- |
-| documents | 210 (179 LLM-served, 31 skill-served) |
-| mean field F1 | 0.9012 |
-| validation pass rate | 0.5048 |
-| skills | 7 trial · 4 candidate · 0 active · 4 rejections |
-| tokens | 48,424 in / 16,920 out = **65,344** (311.2 per doc) |
+## The arms
 
-`*_cost_usd` fields read 0.0 because `configs/default.yaml`'s `costs:` table is empty. That is
-not an oversight: Qwen Cloud bills a **credits subscription**, not per-token USD, so there is no
-$/Mtok rate to fill in. Token counts are the honest unit here.
+| | arm 1 `weak` | arm 2 `weak_xverify` | arm 3 `strong` |
+| --- | --- | --- | --- |
+| extraction model | qwen-turbo | qwen-turbo | **qwen-plus** |
+| pool verification | — | second extractor (qwen-max) | — |
+| mean field F1 | 0.9190 | 0.9214 | **1.0000** |
+| validation pass rate | 0.5071 | 0.5048 | **1.0000** |
+| skill-served docs (of 420) | 115 | 76 | **198** |
+| silent failures | 0 | 0 | 0 |
+| skills | 6 active · 8 candidate | 4 active · 11 candidate | **10 active** · 14 candidate |
+| admission rejections | 8 | 11 | 14 |
+| total tokens | 260,669 | 292,289 | 312,788 |
 
-## Why 0 skills reached `active`
+`A3_live_*` is the earlier 210-document run at 15 docs/format that first exposed the
+silent-failure mechanism; it is kept because it is the evidence for that finding.
 
-Promotion needs `trial_docs` clean production documents *after* admission, and synthesis itself
-needs `synthesis_trigger` pooled samples first. At 15 documents per format there is not enough
-traffic left after synthesis for any skill to finish its trial. Run scale, not a defect.
+`skills/` and `skills_strong/` hold the **verbatim parser code** the synthesiser wrote, kept as
+artifacts. They are excluded from linting — editing them would destroy what they document.
 
-## The result worth reading — see the root README
+## What these arms establish
 
-Live A3 shows **11 silent failures** (35.5% of skill-served docs) where the simulated arms show
-zero. All 11 are exactly one wrong field out of eight: `invoice_number` (9) and
-`line_item_count` (2) — precisely the two fields with no cross-field validator rule.
+**1. Extraction-model choice, not the pipeline, drove the earlier failures.** Same prompt, same
+rules, same synthesiser: validation pass rate goes 0.51 → **1.00** and field F1 0.919 → **1.00**
+purely by moving extraction from qwen-turbo to qwen-plus, for 20% more tokens. qwen-turbo's
+dominant error is layout-conditioned — a `Tax 8.25% 365.11` line leads it to return the *rate*
+where the schema declares a money *amount*.
 
-Nine of them are a normalization mismatch this benchmark created: `banner.html` is the only
-template that renders `#{{ invoice_number }}` while ground truth omits the `#`, so the LLM copying
-the page verbatim scores as wrong on 100% of those formats' pool samples, and the skill reproduces
-it. Low severity; the *mechanism* (pool-vs-ground-truth divergence surviving admission) is the
-point. The other two are a real generalization defect on 5-line-item documents.
+**2. The validator earns its keep where it has a cross-field check.** Under the weak extractor,
+`money_unparseable` fired 180 times and `date_unparseable` 27, keeping every one of those samples
+out of the verified pool — so no skill was ever synthesised from them. Skill-served documents
+recorded **zero** validation failures in every arm.
 
-`cost_usd: 0.0` here is a null artifact of the empty `costs:` table, **not** a measurement.
+**3. Cross-model pool verification was measured, found net-negative, and removed.** Arm 2 checked
+138 pool-bound samples and rejected 2 (1.45%), for +12% tokens — and it *slowed skill formation*,
+since rejecting samples shrinks pools (115 → 76 skill-served docs, 6 → 4 active skills). Its
+detection rate on the one genuinely contaminated field was ~20-29%, because the second model
+shares the same layout-induced confusion: **correlated errors defeat cross-model agreement**, and
+layout ambiguity produces correlated errors by construction. A deterministic cross-field rule
+(field-overlap, rule 6) caught **7/7** of the same contaminations at zero API cost, so the module
+was deleted rather than kept as unused surface.
 
-**Do not quote "skills beat the LLM."** Skills only exist on the 7 formats where the LLM was good
-enough to build a pool, so the raw 0.9556-vs-0.8918 comparison is a selection artifact. Like for
-like on those same 7 formats the LLM scores **0.9628** and the skills **0.9556** — the skills are
-marginally *worse* than the teacher they were distilled from.
+**4. Attribution issued zero verdicts in every arm, and that is correct.** Attribution classifies
+*failure batches* raised by the monitor, and the monitor watches validation outcomes. Skill-served
+documents had zero validation failures, so no batch ever formed. Silent failures — which pass
+validation by definition — are structurally invisible to the monitor and therefore to attribution.
+They are the admission gate's problem, not the accountant's. Earlier framing that more traffic per
+format would make attribution fire was wrong: the bottleneck is failures, not volume.
+
+## Cost
+
+Tokens are the unit here, not dollars. `cost_usd: 0.0` in these files is a **null artifact**, not
+a measurement: cost accounting is implemented and provider-agnostic, but Qwen Cloud bills by
+credit subscription with no published per-token rate table, so `costs:` in the config is empty.
+
+Synthesis is the larger consumer and was previously invisible — arm 1 spent 135,367 input tokens
+on synthesis against 83,203 on extraction. Skill-served documents consume **zero** marginal
+inference tokens; amortisation is the mechanism, and the synthesis cost is what it amortises
+against.
+
+## Auditability limits
+
+Traces store extracted field *values* and the registry is persisted per arm, so these runs are
+replayable — both were added after the first live run proved un-auditable. Two limits remain:
+arm 2's per-sample disagreement values were not persisted (only counts), and the 210-document
+`A3_live_*` run predates all of this instrumentation.
