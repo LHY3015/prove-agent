@@ -10,6 +10,12 @@ exists — the validator produced it. Attribution only reads objective trace sig
                  is wrong, not the extraction.
   data_drift     the skill passed cleanly for a while, then failures begin abruptly at high
                  confidence (same format, header-stable fingerprint) → the world changed.
+  input_noise    the document's own extracted text was measurably degraded at ingestion → the
+                 input failed, not any component. Unique among the accounts in having no party to
+                 charge and nothing to repair: the remedy is to quarantine the document. Without
+                 this account, a degraded doc routes exactly (its header may be intact), fails at
+                 high confidence, survives every other peel, and is charged to a healthy skill as
+                 skill_defect — the precise miscarriage this module exists to prevent.
   skill_defect   high-confidence failures spread across the batch since the skill's start → the
                  skill itself is broken.
   ambiguous      no deterministic rule fits → honest fallback (logged, no ledger charge, no
@@ -17,7 +23,7 @@ exists — the validator produced it. Attribution only reads objective trace sig
                  LLM is forbidden from judging extraction quality — it only classifies.
 
 Design: *per-doc exoneration* ("peel"), never batch-fiat. Failures a deterministic per-doc test
-explains (route_confidence < tau; rule_failures ⊆ frozen rules) are removed from the batch and
+explains (input_integrity < tau; route_confidence < tau; rule_failures ⊆ frozen rules) are removed from the batch and
 charged to their own account; only the *residual* high-confidence, non-rule failures are eligible
 to be charged to the skill. This makes mixed-cause batches (routing noise concurrent with a real
 defect) resolve correctly and lets the same code back both the routing and the rule remedies.
@@ -41,8 +47,11 @@ DEFAULT_CONF_TAU = 0.9
 # fraction of the ordered batch that must pass cleanly *before* the first residual failure for the
 # onset to read as abrupt (data_drift) rather than present-from-the-start (skill_defect).
 DEFAULT_DRIFT_PREFIX = 0.4
+# input_integrity at/below this marks the document itself as unreadable. Born-digital extraction
+# scores 1.0, so like conf_tau this sits on a wide margin rather than a knife edge.
+DEFAULT_INTEGRITY_TAU = 0.95
 
-RootCause = str  # skill_defect | routing_error | rule_defect | data_drift | ambiguous
+RootCause = str  # skill_defect | routing_error | rule_defect | data_drift | input_noise | ambiguous
 
 
 @dataclass
@@ -69,9 +78,11 @@ class Attributor:
         *,
         conf_tau: float = DEFAULT_CONF_TAU,
         drift_prefix_frac: float = DEFAULT_DRIFT_PREFIX,
+        integrity_tau: float = DEFAULT_INTEGRITY_TAU,
     ):
         self.conf_tau = conf_tau
         self.drift_prefix_frac = drift_prefix_frac
+        self.integrity_tau = integrity_tau
 
     def classify(
         self,
@@ -91,13 +102,23 @@ class Attributor:
 
         has_clean_high_conf = any(t.route_confidence >= self.conf_tau for t in passes)
 
+        # --- peel 0: input_noise (per-doc, deterministic) -------------------
+        # a failure on a document whose extracted text was measurably degraded at ingestion is
+        # nobody's fault — not the skill's, not the router's. Runs FIRST because degraded header
+        # tokens also depress route_confidence, so a doc eligible for both peels must land in the
+        # account naming the root cause (the unreadable input) rather than its downstream symptom
+        # (the weak route). Only failures are peeled: a low-integrity doc that still validates
+        # harmed nobody and needs no action.
+        noise_exon = [t for t in fails if t.input_integrity < self.integrity_tau]
+        residual = [t for t in fails if t not in noise_exon]
+
         # --- peel 1: routing_error (per-doc, deterministic) -----------------
         # a failure below tau is a mis-delivery; exonerate it ONLY when the skill demonstrably
         # works on its own high-confidence traffic (else "low confidence everywhere" is the
         # skill's own format being unfamiliar, not a routing fault).
-        routing_exon = [t for t in fails
+        routing_exon = [t for t in residual
                         if t.route_confidence < self.conf_tau and has_clean_high_conf]
-        residual = [t for t in fails if t not in routing_exon]
+        residual = [t for t in residual if t not in routing_exon]
 
         # --- peel 2: rule_defect (per-doc, deterministic) -------------------
         # a failure whose every rule_failure is a frozen (known-bad) rule is the rule's account,
@@ -110,17 +131,29 @@ class Attributor:
         # --- classify the residual (high-confidence, non-rule failures) -----
         if not residual:
             # the whole batch was explained by exoneration; the dominant account wins.
-            if len(routing_exon) >= len(rule_exon):
+            all_exon = [t.doc_id for t in fails]
+            counts = {"input_noise": len(noise_exon), "routing_error": len(routing_exon),
+                      "rule_defect": len(rule_exon)}
+            # ties break toward the earlier peel (input_noise > routing_error > rule_defect),
+            # matching the peel order's precedence.
+            dominant = max(counts, key=lambda k: counts[k])
+            if dominant == "input_noise":
                 return AttributionResult(
-                    "routing_error", [], [t.doc_id for t in fails],
+                    "input_noise", [], all_exon,
+                    {"degraded_failures": len(noise_exon), "integrity_tau": self.integrity_tau,
+                     "mean_integrity": round(
+                         sum(t.input_integrity for t in noise_exon) / len(noise_exon), 3)})
+            if dominant == "routing_error":
+                return AttributionResult(
+                    "routing_error", [], all_exon,
                     {"low_conf_failures": len(routing_exon), "tau": self.conf_tau,
                      "clean_high_conf_passes": len(passes)})
             return AttributionResult(
-                "rule_defect", [], [t.doc_id for t in fails],
+                "rule_defect", [], all_exon,
                 {"rule_explained_failures": len(rule_exon),
                  "frozen_rules": sorted(frozen_rules)})
 
-        exon_ids = [t.doc_id for t in routing_exon + rule_exon]
+        exon_ids = [t.doc_id for t in noise_exon + routing_exon + rule_exon]
         charged_ids = [t.doc_id for t in residual]
         cause = self._drift_vs_defect(batch, residual)
         evidence = {

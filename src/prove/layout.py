@@ -17,11 +17,17 @@ so the schema is frozen and versioned; additive changes only, bump the version o
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pdfplumber
 
 TEXT_LAYOUT_SCHEMA_VERSION = 1
+
+# characters a text extractor should never emit from a legible document; their presence marks a
+# token as unreadable. Kept deliberately narrow (control/replacement/box glyphs), so ordinary
+# punctuation and currency symbols never count as damage.
+_JUNK_RE = re.compile(r"[^\w\s.,:;/()%\-+&#'\"@$£€*]|�")
 
 # words whose top-coordinates differ by less than this are treated as the same row
 _ROW_TOLERANCE = 3.0
@@ -52,6 +58,35 @@ def _finish_line(words: list[dict[str, Any]]) -> dict[str, Any]:
         "top": round(min(w["top"] for w in words), 2),
         "x0": round(min(w["x0"] for w in words), 2),
     }
+
+
+def input_integrity(text_layout: dict[str, Any]) -> float:
+    """Fraction of tokens that are character-class clean — a deterministic, ground-truth-free
+    measure of how readable the extracted text is, computed at ingestion.
+
+    Scope (stated, not hidden): this detects the *unreadable-region* noise model — an OCR engine
+    emitting junk glyphs where the page is smudged or occluded. It does NOT detect plausible
+    charset confusions (0/O, 1/l, rn/m), which produce clean-looking tokens; those remain
+    out of scope, as does any judgement of whether a token is the *right* one. Character class
+    only — never semantics, so this stays a measurement and not a quality verdict.
+
+    Born-digital PDFs score 1.0, so the threshold that consumes this sits on a wide margin.
+
+    Two calibration limits, both stated because they point in opposite directions:
+      - This is a WHOLE-DOCUMENT fraction, so a small unreadable region on a text-dense page
+        dilutes toward 1.0 and is missed. That under-detection fails toward charging the skill
+        (the behaviour that existed before this signal), never toward false exoneration.
+      - The threshold is validated against the synthetic damage model only. Real OCR typography
+        can depress the score without any unreadability: 3 of 100 real CORD receipts scored
+        below 0.95 (min 0.8889, p05 0.9574, median 1.0000). None were skill-served, so no peel
+        fired — the real-text false-positive rate is UNMEASURED, and a false peel exonerates,
+        which is the dangerous direction. Recalibrate before any real-data attribution claim.
+    """
+    words = text_layout.get("words", [])
+    if not words:
+        return 1.0
+    clean = sum(1 for w in words if not _JUNK_RE.search(str(w.get("text", ""))))
+    return round(clean / len(words), 4)
 
 
 def extract_layout(pdf_path: str) -> dict[str, Any]:

@@ -15,6 +15,11 @@ Four faults, injected at two distinct seams so the *measured* pipeline stays the
                     into per-doc fault labels for the confusion matrix.
   - rule_corruption COMPONENT seam (Stage 4b): a validator wrapper that flips/loosens one rule.
   - pool_poisoning  DATA seam (Stage 4c): mislabeled samples inserted into a pool pre-synthesis.
+  - input_noise     INGESTION seam. `LayoutGarbler` degrades the extracted `text_layout` of a
+                    scheduled fraction of documents (junk glyphs over a page band), modelling an
+                    unreadable scan region. Unlike the four above, the fault is a property of the
+                    document rather than of a pipeline component — no component is at fault, so
+                    attribution exonerates rather than repairs.
 
 Each injector is the single writer of its own ground-truth label log, so the confusion matrix
 compares injected cause vs attributed cause with no guesswork.
@@ -75,6 +80,79 @@ class NoisyRouter(Router):
         self.faults.append({"doc_id": doc_id, "true_format": true_id,
                             "forced_format": forced, "confidence": round(genuine, 4)})
         return forced, genuine, "fuzzy"
+
+
+class LayoutGarbler:
+    """input_noise — INGESTION seam. Simulates an unreadable page region: for a scheduled fraction
+    of documents, the tokens inside a horizontal band of the page have characters replaced by junk
+    glyphs, exactly as an OCR engine emits on a smudge or occlusion.
+
+    Applied to the `text_layout` AFTER extraction and BEFORE the pipeline sees the document, so the
+    measured pipeline stays the real pipeline. The band defaults to the BODY region (below the
+    header), which is the interesting case: the header fingerprint survives intact, so the doc
+    still routes exactly at ~1.0 confidence and the resulting failure is a *high-confidence* one
+    that no pre-existing peel can explain — it would be charged to a healthy skill as skill_defect
+    without the input_noise account.
+
+    Only character classes are damaged, never positions: this models illegibility, not re-layout.
+    """
+
+    _JUNK = "▯§¤|~^"
+
+    def __init__(
+        self,
+        *,
+        noise_rate: float = 0.3,
+        token_frac: float = 0.5,
+        band: tuple[float, float] = (0.35, 1.0),   # fractions of the CONTENT extent
+        seed: int = 0,
+    ):
+        self.noise_rate = noise_rate
+        self.token_frac = token_frac
+        self.band = band
+        self._rng = random.Random(seed)
+        self.faults: list[dict[str, Any]] = []
+
+    def apply(self, doc_id: str, text_layout: dict[str, Any]) -> dict[str, Any]:
+        """Return the (possibly) degraded text_layout, logging ground truth when it fires."""
+        if self._rng.random() >= self.noise_rate:
+            return text_layout
+        words = [dict(w) for w in text_layout.get("words", [])]
+        if not words:
+            return text_layout
+        # the band spans the document's CONTENT, not the page: an A4 invoice leaves most of the
+        # sheet blank, so a page-relative band would land on whitespace and damage nothing.
+        tops = [float(w["top"]) for w in words]
+        top, extent = min(tops), (max(tops) - min(tops)) or 1.0
+        lo, hi = top + self.band[0] * extent, top + self.band[1] * extent
+        hit = 0
+        for w in words:
+            if not (lo <= float(w["top"]) <= hi):
+                continue
+            if self._rng.random() >= self.token_frac:
+                continue
+            w["text"] = "".join(
+                self._rng.choice(self._JUNK) if self._rng.random() < 0.5 else ch
+                for ch in str(w["text"])
+            )
+            hit += 1
+        if not hit:
+            return text_layout
+        degraded = dict(text_layout)
+        degraded["words"] = words
+        # lines/full_text are derived views — rebuild them so every consumer sees the same damage
+        from ..layout import _group_lines
+
+        degraded["lines"] = _group_lines(words)
+        degraded["full_text"] = "\n".join(ln["text"] for ln in degraded["lines"])
+        self.faults.append({"doc_id": doc_id, "garbled_tokens": hit,
+                            "band": list(self.band)})
+        return degraded
+
+    def labels(self, doc_ids: list[str]) -> dict[str, str]:
+        """Per-doc injected-fault label for the confusion matrix."""
+        fired = {f["doc_id"] for f in self.faults}
+        return {d: ("input_noise" if d in fired else "none") for d in doc_ids}
 
 
 def drift_labels(manifest: list[dict[str, Any]]) -> dict[str, str]:

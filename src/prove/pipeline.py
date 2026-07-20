@@ -25,6 +25,7 @@ from .admission import Admission
 from .attribution import Attributor
 from .audit import PoolAuditor
 from .extraction_agent import ExtractionAgent
+from .layout import input_integrity
 from .llm_client import LLMClient
 from .monitor import Monitor
 from .registry import Registry
@@ -115,6 +116,7 @@ class Pipeline:
         self.attributor = Attributor(
             conf_tau=att.get("conf_tau", 0.9),
             drift_prefix_frac=att.get("drift_prefix_frac", 0.4),
+            integrity_tau=att.get("integrity_tau", 0.95),
         )
         self.ambiguous_meta_review = att.get("ambiguous_meta_review", 2)
         # the auditor must judge with the SAME (possibly corrupted) validator the pipeline uses, so
@@ -196,6 +198,7 @@ class Pipeline:
             extraction_source=ext.source,
             field_results=verdict.field_diffs or {},
             validation=verdict,
+            input_integrity=input_integrity(state["document"].text_layout),
             cost_usd=ext.cost_usd, tokens_in=ext.tokens_in, tokens_out=ext.tokens_out,
         )
         self.traces.write(trace)
@@ -284,7 +287,15 @@ class Pipeline:
             self._deprecate_and_reset(skill_id, fingerprint, f"{result.root_cause}:{reason}")
             return
 
-        if result.root_cause == "routing_error":
+        if result.root_cause == "input_noise":
+            # no component is at fault, so no ledger charge and no repair — the documents
+            # themselves are quarantined for re-ingestion and the skill keeps serving.
+            verdict.action_taken = "quarantine_documents"
+            self.registry.log_event(skill_id, "input_noise_quarantine",
+                                    {"exonerated": len(result.exonerated_doc_ids),
+                                     "reason": reason})
+            self._ambiguous_counts.pop(skill_id, None)
+        elif result.root_cause == "routing_error":
             verdict.action_taken = "quarantine_route"
             self.registry.log_event(skill_id, "routing_quarantine",
                                     {"exonerated": len(result.exonerated_doc_ids), "reason": reason})

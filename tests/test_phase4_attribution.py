@@ -25,14 +25,15 @@ from prove.schemas import Trace, ValidationVerdict
 
 
 def mk_trace(doc_id: str, conf: float, passed: bool, *, rule_failures=None,
-             source: str = "skill", skill_id: str = "F1-v1") -> Trace:
+             source: str = "skill", skill_id: str = "F1-v1",
+             integrity: float = 1.0) -> Trace:
     verdict = ValidationVerdict(doc_id=doc_id, passed=passed,
                                rule_failures=list(rule_failures or []))
     return Trace(
         doc_id=doc_id, ts=0.0, route_format_id="F1", route_confidence=conf,
         route_method="exact" if conf >= 0.9 else "fuzzy", route_fingerprint="fp",
         skill_id=skill_id, skill_version=1, extraction_source=source,
-        field_results={}, validation=verdict,
+        field_results={}, validation=verdict, input_integrity=integrity,
     )
 
 
@@ -108,6 +109,55 @@ def test_all_low_confidence_failures_without_a_clean_baseline_charge_the_skill()
     r = Attributor().classify(batch)
     assert r.root_cause == "skill_defect"
     assert set(r.charged_doc_ids) == {f"f{i}" for i in range(5)}
+
+
+def test_input_noise_when_failures_are_on_degraded_documents():
+    # the account's reason for existing: a degraded doc still routes EXACTLY (its header survived),
+    # so nothing but the integrity signal distinguishes it from a genuine skill defect.
+    batch = ([mk_trace(f"p{i}", 1.0, True) for i in range(6)]
+             + [mk_trace(f"n{i}", 1.0, False, integrity=0.6) for i in range(4)])
+    r = Attributor().classify(batch)
+    assert r.root_cause == "input_noise"
+    assert r.charged_doc_ids == []
+    assert set(r.exonerated_doc_ids) == {f"n{i}" for i in range(4)}
+
+
+def test_without_the_integrity_peel_degraded_docs_would_be_charged_to_the_skill():
+    # regression guard on the miscarriage this account prevents: identical batch, integrity signal
+    # absent (tau below the degraded score) → the same failures land on the skill.
+    batch = ([mk_trace(f"p{i}", 1.0, True) for i in range(6)]
+             + [mk_trace(f"n{i}", 1.0, False, integrity=0.6) for i in range(4)])
+    r = Attributor(integrity_tau=0.0).classify(batch)
+    assert r.root_cause in ("skill_defect", "data_drift")
+    assert set(r.charged_doc_ids) == {f"n{i}" for i in range(4)}
+
+
+def test_input_noise_peels_before_routing_when_a_doc_qualifies_for_both():
+    # garbled header tokens depress route confidence too; the doc must be charged to the root
+    # cause (unreadable input), not to the symptom (weak route).
+    batch = ([mk_trace(f"p{i}", 1.0, True) for i in range(6)]
+             + [mk_trace(f"n{i}", 0.4, False, integrity=0.5) for i in range(4)])
+    r = Attributor().classify(batch)
+    assert r.root_cause == "input_noise"
+
+
+def test_degraded_documents_that_pass_validation_are_not_peeled():
+    # only failures are peeled — a low-integrity doc the skill parsed correctly harmed nobody.
+    batch = ([mk_trace(f"p{i}", 1.0, True, integrity=0.5) for i in range(6)]
+             + [mk_trace(f"f{i}", 1.0, False) for i in range(4)])
+    r = Attributor().classify(batch)
+    assert r.root_cause in ("skill_defect", "data_drift")
+    assert set(r.charged_doc_ids) == {f"f{i}" for i in range(4)}
+
+
+def test_mixed_batch_splits_input_noise_from_a_genuine_defect():
+    # composition: the residual (clean, high-confidence failures) still reaches the skill.
+    batch = ([mk_trace(f"p{i}", 1.0, True) for i in range(4)]
+             + [mk_trace(f"n{i}", 1.0, False, integrity=0.5) for i in range(3)]
+             + [mk_trace(f"d{i}", 1.0, False) for i in range(4)])
+    r = Attributor().classify(batch)
+    assert set(r.charged_doc_ids) == {f"d{i}" for i in range(4)}
+    assert set(r.exonerated_doc_ids) == {f"n{i}" for i in range(3)}
 
 
 def test_ambiguous_when_no_failures_in_batch():
@@ -208,6 +258,32 @@ def test_a3_spares_healthy_skill_under_routing_noise():
     events = [e["event_type"] for e in pipe.registry.events(sid)]
     assert "routing_quarantine" in events
     assert any(a["root_cause"] == "routing_error" for a in pipe.attributions)
+
+
+def test_a2_kills_healthy_skill_under_input_noise():
+    # the counterfactual the fifth account exists for: degraded docs route EXACTLY (their headers
+    # survived), so without an integrity peel these are indistinguishable from a skill defect.
+    pipe, sid = _pipeline_with_serving_skill("A2")
+    for i in range(10):
+        pipe._record_skill_outcome(mk_trace(f"p{i}", 1.0, True, skill_id=sid))
+    for i in range(4):
+        pipe._record_skill_outcome(mk_trace(f"f{i}", 1.0, False, skill_id=sid, integrity=0.6))
+    assert pipe.registry.get_skill(sid).state == "deprecated"
+
+
+def test_a3_spares_healthy_skill_under_input_noise():
+    pipe, sid = _pipeline_with_serving_skill("A3")
+    for i in range(10):
+        pipe._record_skill_outcome(mk_trace(f"p{i}", 1.0, True, skill_id=sid))
+    for i in range(4):
+        pipe._record_skill_outcome(mk_trace(f"f{i}", 1.0, False, skill_id=sid, integrity=0.6))
+    skill = pipe.registry.get_skill(sid)
+    assert skill.state in ("trial", "active")              # NOT deprecated
+    assert skill.confidence > 0.5                          # beta never charged for the bad input
+    events = [e["event_type"] for e in pipe.registry.events(sid)]
+    assert "input_noise_quarantine" in events
+    verdicts = [a for a in pipe.attributions if a["root_cause"] == "input_noise"]
+    assert verdicts and verdicts[0]["action_taken"] == "quarantine_documents"
 
 
 def test_a3_deprecates_on_a_genuine_skill_defect():

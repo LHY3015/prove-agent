@@ -42,6 +42,10 @@ ledger:
 attribution:
   conf_tau: 0.9
   drift_prefix_frac: 0.4
+  # input_integrity at/below this marks the DOCUMENT as unreadable (born-digital extraction
+  # scores 1.0). Peeled before routing: degraded header tokens also depress route confidence,
+  # so the doc must be charged to the root cause, not to the symptom.
+  integrity_tau: 0.95
   ambiguous_meta_review: 2   # consecutive ambiguous verdicts before flagging for meta-review
 
 sandbox:

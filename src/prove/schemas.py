@@ -106,6 +106,11 @@ class Trace(BaseModel):
     extraction_source: Literal["skill", "llm"]
     field_results: dict[str, bool] = Field(default_factory=dict)  # eval-mode field correctness
     validation: ValidationVerdict
+    # CONTRACT (frozen): fraction of this document's tokens that are character-class clean, as
+    # measured on the text_layout at ingestion (layout.input_integrity). 1.0 = pristine. It is a
+    # property of the INPUT, computed before any component runs, so attribution can peel a
+    # degraded-input failure off a batch without charging any component.
+    input_integrity: float = 1.0
     cost_usd: float = 0.0
     tokens_in: int = 0
     tokens_out: int = 0
@@ -138,7 +143,8 @@ class Skill(BaseModel):
 class AttributionVerdict(BaseModel):
     failure_batch_id: str
     root_cause: Literal[
-        "skill_defect", "routing_error", "rule_defect", "data_drift", "ambiguous"
+        "skill_defect", "routing_error", "rule_defect", "data_drift",
+        "input_noise", "ambiguous",
     ]
     evidence: dict = Field(default_factory=dict)
     action_taken: str = ""
