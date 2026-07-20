@@ -21,6 +21,15 @@ browser; no server needed).
 
 ---
 
+## Qwen Cloud submission — Track 1, MemoryAgent
+
+| Requirement | Where |
+| --- | --- |
+| Alibaba Cloud services and APIs | [`src/prove/llm_client.py`](src/prove/llm_client.py) — every real model call goes through `OpenAICompatClient` against Alibaba Cloud Model Studio (DashScope), `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. Models and endpoint in [`configs/default.yaml`](configs/default.yaml). |
+| Architecture diagram | [`docs/architecture.png`](docs/architecture.png), below |
+| Live-run evidence | [`evals/live_results/`](evals/live_results/) — four real-Qwen arms of 420 documents, plus the parser code the model wrote |
+| Open source licence | [MIT](LICENSE) |
+
 ## Quickstart
 
 **Prerequisites** — Python 3.12 and [uv](https://docs.astral.sh/uv/). Document generation renders

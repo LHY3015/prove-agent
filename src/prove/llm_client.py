@@ -1,10 +1,19 @@
-"""LLM transport abstraction.
+"""LLM transport abstraction — and the file that carries this project's Alibaba Cloud integration.
 
-Three implementations behind one interface:
+Every real model call in PROVE goes through `OpenAICompatClient` below, which targets **Alibaba
+Cloud Model Studio (DashScope)** over its OpenAI-compatible endpoint:
+
+    https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+
+The models are Qwen (`qwen-turbo` / `qwen-plus` extraction, `qwen-coder-plus` synthesis; see
+`configs/default.yaml`), authenticated with `DASHSCOPE_API_KEY`. Live-run artifacts produced
+through this client are committed under `evals/live_results/`.
+
+Two implementations behind one interface:
   - FakeClient          — deterministic test/eval double; CI never touches a real API.
-  - OpenAICompatClient  — openai SDK against any OpenAI-compatible base_url (Qwen / Model
-                          Studio international, Azure OpenAI, self-hosted vLLM — a base_url swap).
-  - AnthropicClient     — deferred (interface already accommodates it).
+  - OpenAICompatClient  — openai SDK against the DashScope endpoint above. The base_url is config,
+                          not code, so the same client also serves any other OpenAI-compatible
+                          provider without a code change.
 
 Cost math lives ONLY in estimate_cost() so token->dollar accounting has a single source.
 """
